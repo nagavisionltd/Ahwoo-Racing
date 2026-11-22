@@ -1,0 +1,262 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #050712;
+  --gold: #f5c451;
+  --gold-bright: #ffd978;
+  --cy: #00f0ff;
+  --mg: #ff2e93;
+  --pr: #9d4edd;
+  --tx: #f4f7ff;
+  --accent: #f5c451;
+  --accent2: #00f0ff;
+  --sel-accent: #f5c451;
+  --panel-bg: rgba(7, 11, 24, 0.88);
+  --panel-border: rgba(245, 196, 81, 0.45);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  overflow: hidden;
+  font-family: "Orbitron", "Audiowide", "Noto Sans SC", system-ui, sans-serif;
+  color: var(--tx);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.font-kanji {
+  font-family: "Noto Sans SC", "Orbitron", sans-serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sharp luxury cyber frame without backdrop-filter over WebGL */
+.lux-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), inset 0 0 24px rgba(245, 196, 81, 0.06);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+
+.lux-panel-cyan {
+  background: rgba(6, 11, 26, 0.86);
+  border: 1px solid rgba(0, 240, 255, 0.42);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6), inset 0 0 18px rgba(0, 240, 255, 0.08);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+/* Tachometer & energy bar */
+.tach-pip {
+  flex: 1;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  transform: skewX(-22deg);
+  transition: background-color 80ms ease;
+}
+
+.tach-pip.lit {
+  background: var(--cy);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.7);
+}
+
+.tach-pip.hot {
+  background: var(--gold);
+  box-shadow: 0 0 10px rgba(245, 196, 81, 0.85);
+}
+
+.cta-btn {
+  background: linear-gradient(135deg, rgba(245, 196, 81, 0.24), rgba(0, 240, 255, 0.22));
+  border: 1.5px solid var(--gold);
+  color: #ffffff;
+  transform: skewX(-12deg);
+  box-shadow: 0 0 28px rgba(245, 196, 81, 0.35), inset 0 0 18px rgba(245, 196, 81, 0.16);
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.cta-btn:hover {
+  transform: skewX(-12deg) scale(1.04);
+  border-color: var(--cy);
+  box-shadow: 0 0 36px rgba(0, 240, 255, 0.5), inset 0 0 22px rgba(245, 196, 81, 0.28);
+}
+
+.cta-btn:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 4px;
+}
+
+.nav-chip {
+  background: rgba(8, 13, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transform: skewX(-10deg);
+  transition: border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.nav-chip:hover {
+  border-color: var(--gold);
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(245, 196, 81, 0.25);
+}
+
+.countdown-pop {
+  animation: countPop 0.65s ease-out;
+}
+
+@keyframes countPop {
+  0% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+  35% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 1;
+  }
+}
+
+@keyframes weatherRainFall {
+  0% {
+    transform: translate(2px, -5px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate(-3px, 7px);
+    opacity: 0;
+  }
+}
+
+@keyframes weatherBoltArc {
+  0%,
+  72%,
+  100% {
+    opacity: 0.25;
+  }
+  76%,
+  84% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes weatherSolarSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes weatherFlareSweep {
+  0% {
+    transform: scale(0.84);
+    opacity: 0.9;
+  }
+  65% {
+    transform: scale(1.16);
+    opacity: 0.25;
+  }
+  100% {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+}
+
+@keyframes weatherIonOrbitCw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes weatherIonOrbitCcw {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.weather-rain-drop-1 {
+  animation: weatherRainFall 0.95s linear infinite;
+}
+
+.weather-rain-drop-2 {
+  animation: weatherRainFall 0.95s linear -0.32s infinite;
+}
+
+.weather-rain-drop-3 {
+  animation: weatherRainFall 0.95s linear -0.64s infinite;
+}
+
+.weather-bolt-arc {
+  animation: weatherBoltArc 2.4s ease-in-out infinite;
+}
+
+.weather-solar-rays {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: weatherSolarSpin 14s linear infinite;
+}
+
+.weather-solar-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: weatherFlareSweep 2.2s ease-out infinite;
+}
+
+.weather-ion-cw {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: weatherIonOrbitCw 5.5s linear infinite;
+}
+
+.weather-ion-ccw {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: weatherIonOrbitCcw 4.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countdown-pop,
+  .cta-btn,
+  .nav-chip,
+  .weather-rain-drop-1,
+  .weather-rain-drop-2,
+  .weather-rain-drop-3,
+  .weather-bolt-arc,
+  .weather-solar-rays,
+  .weather-solar-ring,
+  .weather-ion-cw,
+  .weather-ion-ccw {
+    animation: none;
+    transition: none;
+  }
+}
