@@ -15,7 +15,7 @@ import { WeatherHazardManager, type HazardInteractionResult } from './weatherHaz
 import { buildWorld, disposeGroup, type BuiltWorld } from './worlds';
 
 const TOTAL_LAPS = 3;
-const MAXV = 300;
+const MAXV = 260;
 
 const CyberShader = {
   name: 'CyberShader',
@@ -230,8 +230,8 @@ export class AhwooEngine {
   private screenShake = 0;
   private aberrationPulse = 0;
   private camDip = 0;
-  private camBack = 26;
-  private camUpD = 5;
+  private camBack = 10.2;
+  private camUpD = 2.6;
   private camBoost = 0;
   private hitstopTimer = 0;
   private reconU = 0;
@@ -538,7 +538,7 @@ export class AhwooEngine {
         u: (i + 1) * 0.022,
         lap: 1,
         off: [-0.45, -0.1, 0.42][i] * hw,
-        baseSpeed: [0.78, 0.83, 0.88][i]
+        baseSpeed: [0.82, 0.88, 0.94][i]
       });
     });
   }
@@ -1010,32 +1010,31 @@ export class AhwooEngine {
       const padBoost = S.boost > 0 && thr;
       const boostOn = !brk && (bst || padBoost);
       const accelerating = !brk && (thr || bst);
-      const boostMul = boostOn ? 3.2 * prof.bst : 1;
+      const boostMul = boostOn ? 1.68 * prof.bst : 1;
       const top = accelerating
-        ? MAXV * prof.spd * (boostOn ? 1 : 0.7 + 0.3 * S.throttle) * boostMul
+        ? MAXV * prof.spd * (boostOn ? 1 : 0.72 + 0.28 * S.throttle) * boostMul
         : 0;
-      const k = brk ? 2.6 : accelerating ? (boostOn ? 1.55 : 0.62) * prof.acc : 2.2;
+      const k = brk ? 2.6 : accelerating ? (boostOn ? 3.2 : 0.82 * prof.acc) : 1.9;
 
-      if (boostOn) S.v = Math.max(S.v, top);
-      else S.v += (top - S.v) * (1 - Math.exp(-dt * k));
-      if (brk) S.v = Math.max(0, S.v - 220 * dt);
+      S.v += (top - S.v) * (1 - Math.exp(-dt * k));
+      if (brk) S.v = Math.max(0, S.v - 210 * dt);
 
-      if (bst) S.e -= 0.24 * dt;
-      else S.e = Math.min(1, S.e + 0.03 * dt);
+      if (bst) S.e -= 0.2 * dt;
+      else S.e = Math.min(1, S.e + 0.036 * dt);
       S.boost = Math.max(0, S.boost - dt);
 
       S.steer += (steer - S.steer) * Math.min(1, dt * 11);
       const speedFrac = Math.min(1, S.v / MAXV);
       const boostFrac = boostOn ? 1 : 0;
-      const grip = (0.94 - 0.18 * speedFrac) * prof.hnd;
-      const desiredVx = S.steer * (100 + boostFrac * 80) * (0.45 + 0.55 * speedFrac);
-      const latAccel = (168 + boostFrac * 620) * grip;
+      const grip = (0.96 - 0.16 * speedFrac) * prof.hnd;
+      const desiredVx = S.steer * (92 + boostFrac * 36) * (0.48 + 0.52 * speedFrac);
+      const latAccel = (175 + boostFrac * 240) * grip;
       const dVx = desiredVx - S.vx;
       S.vx += Math.max(-latAccel * dt, Math.min(latAccel * dt, dVx));
       S.x += S.vx * dt;
 
       const liveWidth = trk.hw * trk.widthAt(S.u);
-      S.v *= 1 - Math.min(0.4, Math.abs(S.vx) / liveWidth) * 0.18 * dt;
+      S.v *= 1 - Math.min(0.35, Math.abs(S.vx) / liveWidth) * 0.14 * dt;
       S.hitSpin *= Math.max(0, 1 - dt * 2.4);
 
       const limit = trk.hw * trk.widthAt(S.u) - 4.2;
@@ -1049,7 +1048,11 @@ export class AhwooEngine {
       }
 
       S.prev = S.u;
-      const stepU = (S.v * dt) / trk.len;
+      const probeDu = 0.0006;
+      const probeF0 = trk.fr(S.u);
+      const probeF1 = trk.fr(S.u + probeDu);
+      const arcStretch = Math.min(3.5, Math.max(1.0, probeF0.pos.distanceTo(probeF1.pos) / (probeDu * trk.len)));
+      const stepU = (S.v * dt) / (trk.len * arcStretch);
       const gateAt = [0.2, 0.4, 0.6, 0.8][S.gates];
       if (gateAt !== undefined && S.u < gateAt && S.u + stepU >= gateAt) S.gates++;
       S.u += stepU;
@@ -1058,10 +1061,10 @@ export class AhwooEngine {
       let gapJump = null;
       for (const j of trk.elev.jumps) {
         if (S.prev < j.lip && S.u >= j.lip) {
-          S.v = Math.max(S.v, MAXV * 1.25);
-          S.boost = Math.max(S.boost, 1.8);
-          this.screenShake = Math.max(this.screenShake, 0.5);
-          this.aberrationPulse = 0.04;
+          S.v = Math.max(S.v, MAXV * 1.32);
+          S.boost = Math.max(S.boost, 3.0);
+          this.screenShake = Math.max(this.screenShake, 0.4);
+          this.aberrationPulse = 0.025;
           this.audio.playJump();
           this.showSplit('MEGA JUMP // 大跳躍');
         }
@@ -1071,9 +1074,9 @@ export class AhwooEngine {
       S.air = !!gapJump;
       S.airY = gapJump ? trk.elev.arc(S.u) : 0;
       if (wasAir && !S.air) {
-        this.camDip = -9;
-        this.screenShake = Math.max(this.screenShake, 0.75);
-        this.aberrationPulse = 0.05;
+        this.camDip = -5.5;
+        this.screenShake = Math.max(this.screenShake, 0.55);
+        this.aberrationPulse = 0.03;
         this.audio.playLand();
         this.spawnSparks(ship.position, 36);
       }
@@ -1086,13 +1089,13 @@ export class AhwooEngine {
         if (ship.position.distanceToSquared(ob.pos) < (ob.r + 2.4) ** 2) {
           const dir = Math.sign(S.x - ob.off) || 1;
           S.vx = dir * 58;
-          S.v *= 0.58;
+          S.v *= 0.62;
           S.e = Math.max(0, S.e - 0.12);
           S.hitSpin = (Math.random() - 0.5) * 1.1;
           ob.cool = 2.2;
           this.spawnSparks(ob.pos, 38);
-          this.screenShake = 0.9;
-          this.aberrationPulse = 0.05;
+          this.screenShake = 0.75;
+          this.aberrationPulse = 0.035;
           this.hitstopTimer = 0.042; // 42ms impact hitstop
           this.audio.playCrash();
         }
@@ -1105,15 +1108,20 @@ export class AhwooEngine {
         S.vx = 0;
       }
 
+      const boostLaneSpan = 190 / trk.len;
       for (const pu of trk.pads) {
+        const puEnd = Math.min(0.999, pu + boostLaneSpan);
         if (S.prev < pu && S.u >= pu) {
-          S.boost = 2.4;
-          S.v += 24;
-          S.e = Math.min(1, S.e + 0.4);
+          S.boost = Math.max(S.boost, 4.2);
+          S.v = Math.max(S.v, MAXV * 1.35);
+          S.e = Math.min(1, S.e + 0.45);
           this.audio.playBoost();
           this.showSplit('OVERDRIVE BOOST');
-          this.aberrationPulse = 0.03;
-          this.screenShake = 0.42;
+          this.aberrationPulse = 0.022;
+          this.screenShake = 0.32;
+        } else if (S.u > pu && S.u <= puEnd) {
+          S.boost = Math.max(S.boost, 4.2);
+          S.e = Math.min(1, S.e + 0.18 * dt);
         }
       }
 
@@ -1198,68 +1206,71 @@ export class AhwooEngine {
       this.cam.updateProjectionMatrix();
       this.screenShake = 0;
     } else {
-      const spd = Math.min(3.6, S.v / MAXV);
+      const spd = Math.min(2.2, S.v / MAXV);
       const speed01 = Math.min(1, spd);
-      this.camBoost += ((isBoosting ? 1 : 0) - this.camBoost) * (1 - Math.exp(-dt * 3.5));
-      const widthNow = trk.hw * trk.widthAt(u);
+      this.camBoost += ((isBoosting ? 1 : 0) - this.camBoost) * (1 - Math.exp(-dt * 2.8));
 
       let corkK = 0;
       for (const R of trk.rolls) {
         if (u < R.at || u > R.at + R.w) continue;
         corkK = Math.max(corkK, Math.sin((Math.PI * (u - R.at)) / R.w));
       }
-      const targetBack = 12 + widthNow * 0.1 + spd * 15 + this.camBoost * 8;
-      const targetUp = 2.6 + widthNow * 0.03 + spd * 1.9 + this.camBoost * 0.9;
+      const inLoop = trk.loops.some((L) => u >= L.at && u <= L.at + L.w);
+      const inRoll = corkK > 0.01;
+      const stuntRate = (inLoop ? 18 : 0) + (inRoll ? 16 : 0);
+
+      // Zoomed-in hero chase framing so the luxury hovercar stays large, detailed, and centered
+      const targetBack = 9.4 + spd * 1.9 + this.camBoost * 2.2 + (S.air ? 1.5 : 0) - (inLoop ? 0.7 : 0);
+      const targetUp = 2.45 + spd * 0.25 + this.camBoost * 0.24 + (S.air ? 0.3 : 0);
       this.camBack += (targetBack - this.camBack) * (1 - Math.exp(-dt * 4.5));
       this.camUpD += (targetUp - this.camUpD) * (1 - Math.exp(-dt * 4.5));
 
-      _camT.lerp(F.t, 1 - Math.exp(-dt * (10 + speed01 * 4))).normalize();
-      _camUp.lerp(F.up, 1 - Math.exp(-dt * (6 + speed01 * 4))).normalize();
+      _camT.lerp(F.t, 1 - Math.exp(-dt * (16 + speed01 * 8 + stuntRate))).normalize();
+      _camUp.lerp(F.up, 1 - Math.exp(-dt * (12 + speed01 * 6 + stuntRate))).normalize();
       _camUp.addScaledVector(_camT, -_camUp.dot(_camT)).normalize();
       _camS.crossVectors(_camT, _camUp).normalize();
 
-      const stProbe = 0.0015;
-      const stretch = Math.min(4, Math.max(0.5, F.pos.distanceTo(trk.fr(u - stProbe).pos) / (stProbe * trk.len)));
-      const bf = trk.fr(u - (this.camBack * (1 - 0.15 * corkK)) / stretch / trk.len);
-      _vecA
-        .copy(bf.pos)
-        .addScaledVector(_camUp, this.camUpD + S.airY * 0.78)
-        .addScaledVector(bf.up, corkK * 9)
-        .addScaledVector(_camS, S.x * 0.4 - S.vx * 0.05);
+      // Anchor directly to ship.position so the vehicle can NEVER outrun the camera on boost, jumps, or loops
+      _camP
+        .copy(ship.position)
+        .addScaledVector(_camT, -this.camBack)
+        .addScaledVector(_camUp, this.camUpD + (inRoll ? corkK * 2.2 : 0))
+        .addScaledVector(_camS, -S.vx * 0.012);
 
       if (this.firstFrame) {
-        _camP.copy(_vecA);
-        _camLook.copy(ship.position);
+        _camLook.copy(ship.position).addScaledVector(_camT, 18);
         this.firstFrame = false;
       }
-      _camP.lerp(_vecA, 1 - Math.exp(-dt * (30 + speed01 * 45)));
       this.cam.position.copy(_camP);
 
-      this.camDip *= Math.max(0, 1 - dt * 3.4);
-      if (Math.abs(this.camDip) > 0.01) this.cam.position.addScaledVector(_camUp, this.camDip * 0.6);
+      this.camDip *= Math.max(0, 1 - dt * 4.2);
+      if (Math.abs(this.camDip) > 0.01) this.cam.position.addScaledVector(_camUp, this.camDip * 0.42);
 
       if (this.screenShake > 0.001) {
-        const sh = (this.screenShake * 2) / (1 + spd * 0.9);
+        const sh = (this.screenShake * 1.4) / (1 + spd * 0.7);
         this.cam.position.x += (Math.random() - 0.5) * sh;
         this.cam.position.y += (Math.random() - 0.5) * sh;
         this.cam.position.z += (Math.random() - 0.5) * sh;
-        this.screenShake *= Math.exp(-dt * 4.5);
+        this.screenShake *= Math.exp(-dt * 5.0);
       }
 
-      const ahead = trk.fr(u + (18 + spd * 12 + this.camBoost * 6) / trk.len);
-      const nearRoad = trk.fr(u + 9 / trk.len);
-      _vecB.copy(nearRoad.pos).addScaledVector(nearRoad.up, 2.4 + S.airY * 0.92);
-      _vecC.copy(ahead.pos).addScaledVector(ahead.up, 2.4);
-      _vecB.lerp(_vecC, 0.42).addScaledVector(_camS, S.x * 0.3);
+      const aheadDist = 18 + spd * 10 + this.camBoost * 6;
+      const aheadRoad = trk.fr(u + aheadDist / trk.len);
+      _vecB.copy(ship.position).addScaledVector(_camT, aheadDist).addScaledVector(_camUp, 1.05);
+      _vecC
+        .copy(aheadRoad.pos)
+        .addScaledVector(aheadRoad.up, 2.2 + (S.air ? S.airY * 0.65 : 0))
+        .addScaledVector(aheadRoad.s, S.x * 0.45);
+      _vecB.lerp(_vecC, inLoop || inRoll ? 0.34 : 0.46);
 
-      _camLook.lerp(_vecB, 1 - Math.exp(-dt * (12 + speed01 * 6)));
+      _camLook.lerp(_vecB, 1 - Math.exp(-dt * (22 + speed01 * 10 + stuntRate)));
       this.cam.up.copy(_camUp);
       _camBasis.lookAt(this.cam.position, _camLook, _camUp);
       _camDesiredQ.setFromRotationMatrix(_camBasis);
-      this.cam.quaternion.slerp(_camDesiredQ, 1 - Math.exp(-dt * (16 + speed01 * 30)));
+      this.cam.quaternion.slerp(_camDesiredQ, 1 - Math.exp(-dt * (22 + speed01 * 12 + stuntRate)));
 
-      const targetFov = 60 + speed01 * 8 + spd * 3 + this.camBoost * 5 + corkK * 12;
-      this.cam.fov += (targetFov - this.cam.fov) * (1 - Math.exp(-dt * 3.2));
+      const targetFov = 62 + speed01 * 4 + spd * 2.5 + this.camBoost * 6.5 + (inRoll ? corkK * 5 : 0);
+      this.cam.fov += (targetFov - this.cam.fov) * (1 - Math.exp(-dt * 3.8));
       this.cam.updateProjectionMatrix();
     }
 
@@ -1285,10 +1296,14 @@ export class AhwooEngine {
         rv.lap++;
       }
       const rf = trk.fr(rv.u);
-      rv.g.position.copy(rf.pos).addScaledVector(rf.s, rv.off).addScaledVector(rf.up, 1.35 + trk.elev.arc(rv.u));
+      const rArc = trk.elev.arc(rv.u);
+      rv.g.position.copy(rf.pos).addScaledVector(rf.s, rv.off).addScaledVector(rf.up, 1.35 + rArc);
       _vecNegS.copy(rf.s).negate();
       _mat4.makeBasis(_vecNegS, rf.up, rf.t);
       rv.g.quaternion.setFromRotationMatrix(_mat4);
+      const rAhead = (rv.u + 0.002) % 1;
+      const rPitch = Math.atan((trk.fr(rAhead).h + trk.elev.arc(rAhead) - rf.h - rArc) / (0.002 * trk.len));
+      rv.g.rotateX(-rPitch);
       rv.engine.scale.set(1, 1, 1.15 + Math.sin(now * 0.02 + rv.off) * 0.2);
 
       if (S.run) {
@@ -1447,9 +1462,9 @@ export class AhwooEngine {
     this.aberrationPulse = Math.max(0, this.aberrationPulse - dt * 0.08);
     if (this.cyberPass) {
       this.cyberPass.uniforms.uAberration.value =
-        (isBoosting ? 0.011 : 0) + (S.v / MAXV) * 0.002 + this.aberrationPulse;
-      this.cyberPass.uniforms.uBlueShift.value = isBoosting ? 0.45 : 0;
-      this.cyberPass.uniforms.uBlur.value = isBoosting ? 0.5 : Math.max(0, (S.v / MAXV - 0.75) * 0.35);
+        (isBoosting ? 0.005 : 0) + (S.v / MAXV) * 0.0012 + Math.min(0.025, this.aberrationPulse);
+      this.cyberPass.uniforms.uBlueShift.value = isBoosting ? 0.28 : 0;
+      this.cyberPass.uniforms.uBlur.value = isBoosting ? 0.14 : Math.max(0, (S.v / MAXV - 0.8) * 0.12);
       this.cyberPass.uniforms.uSolarFlare.value = this.weather ? this.weather.getSolarFlareUniform() : 0;
       this.cyberPass.uniforms.uLightning.value = this.weather ? this.weather.getLightningFlash() : 0;
       this.cyberPass.uniforms.uTime.value = now * 0.001;

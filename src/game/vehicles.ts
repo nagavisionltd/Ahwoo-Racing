@@ -453,6 +453,7 @@ export function buildLuxuryHoverCar(typeIndex: number, accentHex: number, scale 
     const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.82, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.56), canopyGlassMat);
     canopy.scale.set(0.9, 0.85, 1.6);
     canopy.position.set(0, 0.42, 0.05);
+    canopy.renderOrder = 3;
     g.add(canopy);
 
     const rider = buildCyberRider(accentHex);
@@ -514,6 +515,7 @@ export function buildLuxuryHoverCar(typeIndex: number, accentHex: number, scale 
     const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.84, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.56), canopyGlassMat);
     canopy.scale.set(0.95, 0.88, 1.7);
     canopy.position.set(0, 0.62, 0.25);
+    canopy.renderOrder = 3;
     g.add(canopy);
 
     const rider = buildCyberRider(secondaryHex);
@@ -584,9 +586,14 @@ export function buildLuxuryHoverCar(typeIndex: number, accentHex: number, scale 
     cowl.position.set(0, 0.56, 1.15);
     g.add(cowl);
 
+    const noseSplitter = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.12, 0.95), chromeMat);
+    noseSplitter.position.set(0, 0.06, 2.38);
+    g.add(noseSplitter);
+
     const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.78, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.54), canopyGlassMat);
     canopy.scale.set(0.92, 0.85, 1.55);
     canopy.position.set(0, 0.58, 0.12);
+    canopy.renderOrder = 3;
     g.add(canopy);
 
     const rider = buildCyberRider(accentHex);
@@ -608,6 +615,11 @@ export function buildLuxuryHoverCar(typeIndex: number, accentHex: number, scale 
       dnWing.position.set(side * 0.6, 0.14, -0.3);
       dnWing.rotation.z = -side * 0.22;
       g.add(dnWing);
+
+      const rearFin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.72, 1.35), obsidianPaintMat);
+      rearFin.position.set(side * 0.76, 0.72, -1.55);
+      rearFin.rotation.z = -side * 0.24;
+      g.add(rearFin);
 
       const coil = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.5, 10), neonMat);
       coil.rotation.x = Math.PI / 2;
@@ -652,6 +664,23 @@ export function buildLuxuryHoverCar(typeIndex: number, accentHex: number, scale 
     light.position.set(0, 0.34, -3.2);
     g.add(light);
   }
+
+  // Subtle underbody hover projection ring for grounded visual weight when zoomed in
+  const groundHalo = new THREE.Mesh(
+    new THREE.RingGeometry(1.15, 2.1, 28),
+    new THREE.MeshBasicMaterial({
+      color: accentHex,
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  groundHalo.rotation.x = -Math.PI / 2;
+  groundHalo.position.set(0, -0.78, 0.1);
+  g.add(groundHalo);
 
   g.scale.setScalar(scale);
   return { g, engine, light, accentMat, typeIndex };

@@ -135,18 +135,25 @@ function arch(
   g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
 
   for (const side of [-1, 1]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(2.2, 40, 2.2), pillarMat);
-    leg.position.set(side * span, 20, 0);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(2.4, 42, 2.4), pillarMat);
+    leg.position.set(side * span, 21, 0);
     g.add(leg);
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.4, 40, 0.4), neonMat);
-    strip.position.set(side * span - side * 1.4, 20, 0);
+    const buttress = new THREE.Mesh(new THREE.BoxGeometry(1.4, 18, 4.2), pillarMat);
+    buttress.position.set(side * (span + 2.2), 9, 0);
+    buttress.rotation.z = side * 0.16;
+    g.add(buttress);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.45, 42, 0.45), neonMat);
+    strip.position.set(side * span - side * 1.45, 21, 0);
     g.add(strip);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 3.4), neonMat);
+    cap.position.set(side * span, 42.5, 0);
+    g.add(cap);
   }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(span * 2.2, 2.2, 2.6), pillarMat);
-  beam.position.y = 39;
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(span * 2.24, 2.4, 2.8), pillarMat);
+  beam.position.y = 40;
   g.add(beam);
-  const beamNeon = new THREE.Mesh(new THREE.BoxGeometry(span * 2.2, 0.4, 0.4), neonMat);
-  beamNeon.position.set(0, 37.8, 0);
+  const beamNeon = new THREE.Mesh(new THREE.BoxGeometry(span * 2.24, 0.45, 0.45), neonMat);
+  beamNeon.position.set(0, 38.6, 0);
   g.add(beamNeon);
 
   const tex = canvasTexture(1024, 192, (ctx) => {
@@ -170,7 +177,7 @@ function arch(
     new THREE.PlaneGeometry(38, 7),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, toneMapped: false, depthWrite: false })
   );
-  sign.position.set(0, 31.5, 0);
+  sign.position.set(0, 32.2, 0);
   sign.rotation.y = Math.PI;
   g.add(sign);
   group.add(g);
@@ -352,6 +359,66 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
+  }
+
+  // Architectural setback crowns, rooftop spires, neon trim rings & Neo-Pagoda roofs
+  const crownMat = new THREE.MeshStandardMaterial({ color: 0x161d38, metalness: 0.8, roughness: 0.28 });
+  const crownMesh = new THREE.InstancedMesh(box, crownMat, towers.length);
+  const spireMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, toneMapped: false });
+  const spireMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.6, 1.5, 1, 6), spireMat, towers.length);
+  const bandMat = new THREE.MeshBasicMaterial({ color: 0xf5c451, toneMapped: false });
+  const bandMesh = new THREE.InstancedMesh(box, bandMat, towers.length);
+
+  const pagodaTowers = towers.filter((t) => t.pagoda);
+  const eaveGeo = new THREE.ConeGeometry(0.85, 0.34, 4);
+  eaveGeo.rotateY(Math.PI / 4);
+  const eaveMat = new THREE.MeshStandardMaterial({
+    color: 0x1e1836,
+    emissive: 0xff2e93,
+    emissiveIntensity: 0.45,
+    metalness: 0.72,
+    roughness: 0.32
+  });
+  const eaveMesh = new THREE.InstancedMesh(eaveGeo, eaveMat, pagodaTowers.length * 2);
+
+  const q0 = new THREE.Quaternion();
+  const sc0 = new THREE.Vector3();
+  const p0 = new THREE.Vector3();
+  towers.forEach((t, i) => {
+    const roofY = t.h - 110;
+    const crownH = 26 + (i % 4) * 14;
+    p0.set(t.p.x, roofY + crownH * 0.5, t.p.z);
+    sc0.set(t.w * 0.64, crownH, t.d * 0.64);
+    _m4.compose(p0, q0, sc0);
+    crownMesh.setMatrixAt(i, _m4);
+
+    p0.set(t.p.x, roofY + 1.2, t.p.z);
+    sc0.set(t.w * 1.04, 2.2, t.d * 1.04);
+    _m4.compose(p0, q0, sc0);
+    bandMesh.setMatrixAt(i, _m4);
+
+    const spireH = 38 + (i % 5) * 18;
+    p0.set(t.p.x, roofY + crownH + spireH * 0.5, t.p.z);
+    sc0.set(1, spireH, 1);
+    _m4.compose(p0, q0, sc0);
+    spireMesh.setMatrixAt(i, _m4);
+  });
+
+  pagodaTowers.forEach((t, i) => {
+    const roofY = t.h - 110;
+    for (let tier = 0; tier < 2; tier++) {
+      const s = 1.28 - tier * 0.32;
+      p0.set(t.p.x, roofY + 8 + tier * 24, t.p.z);
+      sc0.set(t.w * s, 26, t.d * s);
+      _m4.compose(p0, q0, sc0);
+      eaveMesh.setMatrixAt(i * 2 + tier, _m4);
+    }
+  });
+
+  for (const m of [crownMesh, bandMesh, spireMesh, eaveMesh]) {
+    m.instanceMatrix.needsUpdate = true;
+    m.computeBoundingSphere();
+    group.add(m);
   }
 
   // Ahwoo Skyline Billboards on buildings
@@ -574,6 +641,40 @@ function buildBeachWorld(def: LevelDef, trk: TrackData, group: THREE.Group, worl
   leafMesh.computeBoundingSphere();
   group.add(trunkMesh, leafMesh);
 
+  // Sculpted emerald basalt sea-stacks & bioluminescent crystal spires along coast
+  const stackCount = 34;
+  const stackBaseMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(14, 28, 1, 7),
+    new THREE.MeshStandardMaterial({ color: 0x3b2a5a, roughness: 0.82, metalness: 0.14, flatShading: true }),
+    stackCount
+  );
+  const stackCrownMesh = new THREE.InstancedMesh(
+    new THREE.OctahedronGeometry(11, 0),
+    new THREE.MeshStandardMaterial({ color: 0x59f0d8, emissive: 0x1cc7a8, emissiveIntensity: 0.75, roughness: 0.25, metalness: 0.4, flatShading: true }),
+    stackCount
+  );
+  for (let i = 0; i < stackCount; i++) {
+    const u = (i + 0.35) / stackCount;
+    const f = trk.fr(u);
+    const side = i % 2 === 0 ? 1 : -1;
+    const dist = trk.hw + 190 + (i % 5) * 95;
+    const pos = f.pos.clone().addScaledVector(f.s, side * dist);
+    const h = 110 + (i % 4) * 55;
+    _q.setFromEuler(_euler.set(0, i * 0.9, 0));
+    _sc.set(1 + (i % 3) * 0.35, h, 1 + (i % 2) * 0.35);
+    _m4.compose(new THREE.Vector3(pos.x, -340 + h * 0.5, pos.z), _q, _sc);
+    stackBaseMesh.setMatrixAt(i, _m4);
+
+    _sc.set(1.1, 2.2, 1.1);
+    _m4.compose(new THREE.Vector3(pos.x, -340 + h + 10, pos.z), _q, _sc);
+    stackCrownMesh.setMatrixAt(i, _m4);
+  }
+  stackBaseMesh.instanceMatrix.needsUpdate = true;
+  stackCrownMesh.instanceMatrix.needsUpdate = true;
+  stackBaseMesh.computeBoundingSphere();
+  stackCrownMesh.computeBoundingSphere();
+  group.add(stackBaseMesh, stackCrownMesh);
+
   for (let u = 0.08; u < 0.99; u += 0.17) {
     arch(trk, u, 'VESPER SHORE', '海岸', '#8cf7e4', group);
   }
@@ -704,6 +805,35 @@ function buildSpaceWorld(def: LevelDef, trk: TrackData, group: THREE.Group, worl
   }
   asteroids.instanceMatrix.needsUpdate = true;
   group.add(asteroids);
+
+  // Orbital drydock megastructure beacon pylons flanking deep space circuit
+  const pylonCount = 24;
+  const orbitalBody = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(10, 140, 10),
+    new THREE.MeshStandardMaterial({ color: 0x181f3d, metalness: 0.85, roughness: 0.28 }),
+    pylonCount
+  );
+  const orbitalCore = new THREE.InstancedMesh(
+    new THREE.OctahedronGeometry(9, 0),
+    new THREE.MeshBasicMaterial({ color: 0x31e8ff, toneMapped: false }),
+    pylonCount
+  );
+  for (let i = 0; i < pylonCount; i++) {
+    const u = i / pylonCount;
+    const f = trk.fr(u);
+    const side = i % 2 === 0 ? 1 : -1;
+    const pos = f.pos.clone().addScaledVector(f.s, side * (trk.hw + 140 + (i % 3) * 65)).addScaledVector(f.up, -20 + (i % 3) * 30);
+    _q.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
+    _m4.compose(pos, _q, _one);
+    orbitalBody.setMatrixAt(i, _m4);
+    _m4.compose(pos.clone().addScaledVector(f.up, 82), _q, _one);
+    orbitalCore.setMatrixAt(i, _m4);
+  }
+  orbitalBody.instanceMatrix.needsUpdate = true;
+  orbitalCore.instanceMatrix.needsUpdate = true;
+  orbitalBody.computeBoundingSphere();
+  orbitalCore.computeBoundingSphere();
+  group.add(orbitalBody, orbitalCore);
 
   for (let u = 0.07; u < 0.99; u += 0.18) {
     arch(trk, u, 'EVENT HORIZON', '视界', '#9d7bff', group);
@@ -932,14 +1062,14 @@ function buildDressing(def: LevelDef, trk: TrackData, group: THREE.Group): void 
       const f = trk.fr(j.lip + j.gap * k);
       return f.pos.clone().addScaledVector(f.up, trk.elev.arc(j.lip + j.gap * k) + lift).addScaledVector(f.s, side);
     };
-    const n = 5;
+    const n = 7;
     for (let i = 0; i < n; i++) {
       const k = (i + 0.5) / n;
-      const c = pointAt(k, 3.2);
-      const dir = pointAt(k + 0.01, 3.2).sub(c).normalize();
+      const c = pointAt(k, 3.4);
+      const dir = pointAt(k + 0.01, 3.4).sub(c).normalize();
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(Math.min(hw * 0.2, 26), 1.1, 8, 40),
-        basicHot(i % 2 ? B : A, 2.0, { transparent: true, opacity: 0.9 })
+        new THREE.TorusGeometry(Math.min(hw * 0.22, 28), 1.15, 8, 40),
+        basicHot(i % 2 ? B : A, 2.0, { transparent: true, opacity: 0.92 })
       );
       ring.position.copy(c);
       ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
@@ -1116,27 +1246,50 @@ export function buildWorld(
   else if (def.id === 'beach') buildBeachWorld(def, trk, group, world);
   else buildSpaceWorld(def, trk, group, world);
 
-  const rawPads = [0.03];
-  for (const j of trk.elev.jumps) rawPads.push(j.at - 0.014);
-  for (const L of trk.loops) rawPads.push(L.at - 0.022);
-  for (const f of def.features) if (f.type === 'descent') rawPads.push(f.at + f.w * 0.66);
+  const rawPads = [0.02, 0.25, 0.57, 0.78];
+  for (const j of trk.elev.jumps) rawPads.push(j.at - 0.016);
+  for (const L of trk.loops) rawPads.push(L.at - 0.024);
+  for (const f of def.features) if (f.type === 'descent') rawPads.push(f.at + f.w * 0.62);
   trk.pads = rawPads
     .map((p) => ((p % 1) + 1) % 1)
     .filter((p) => !trk.elev.isGap(p) && !trk.inSpecial(p) && !trk.elev.jumps.some((j) => p > j.at - 0.002 && p < j.end))
     .sort((p, q) => p - q)
-    .filter((p, i, arr) => i === 0 || p - arr[i - 1] > 0.012);
+    .filter((p, i, arr) => i === 0 || p - arr[i - 1] > 0.032);
 
+  // Extended 190m spline-aligned Hyper-Boost Lanes with animated chevron stream
   const padTex = padTexture(def.id === 'beach' ? '#59f0d8' : def.id === 'space' ? '#c9a8ff' : '#f5c451');
+  padTex.wrapS = padTex.wrapT = THREE.RepeatWrapping;
+  padTex.repeat.set(1, 5);
+  const boostLaneMat = new THREE.MeshBasicMaterial({
+    map: padTex,
+    transparent: true,
+    opacity: 0.92,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+    depthWrite: false
+  });
+  const boostSpanU = 190 / trk.len;
+  const gatePylonMat = new THREE.MeshBasicMaterial({ color: def.theme.secondary, toneMapped: false });
+
   for (const u of trk.pads) {
-    const f = trk.fr(u);
-    const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(trk.hw * 1.7, 22),
-      new THREE.MeshBasicMaterial({ map: padTex, transparent: true, opacity: 0.9, side: THREE.DoubleSide, toneMapped: false, depthWrite: false })
-    );
-    m.position.copy(f.pos).addScaledVector(f.up, 0.35);
-    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.t, f.up));
-    group.add(m);
+    const uEnd = Math.min(0.998, u + boostSpanU);
+    if (trk.elev.isGap(uEnd) || trk.inSpecial(uEnd)) continue;
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, trk.hw * 1.15, 0.38, u, uEnd, 36, true), boostLaneMat));
+
+    // Entry & exit glowing accelerator fin markers on both edges of the boost strip
+    for (const markerU of [u, uEnd]) {
+      const f = trk.fr(markerU);
+      for (const side of [-1, 1]) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(1.4, 7.5, 3.2), gatePylonMat);
+        fin.position.copy(f.pos).addScaledVector(f.s, side * f.width * 0.58).addScaledVector(f.up, 3.8);
+        fin.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
+        group.add(fin);
+      }
+    }
   }
+  trk.anim.push((dt) => {
+    padTex.offset.y -= dt * 2.4;
+  });
 
   buildSpecials(def, trk, group);
   buildDressing(def, trk, group);

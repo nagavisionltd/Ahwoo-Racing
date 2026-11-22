@@ -16,29 +16,29 @@ function xyz(rows: [number, number, number][]): THREE.Vector3[] {
 
 function neonPoints(): THREE.Vector3[] {
   return xyz([
-    [-1500, 30, -2100], [-400, 30, -2150], [700, 20, -2100], [1600, 10, -1950],
-    [2200, 0, -1400], [2350, -10, -600], [2170, 25, -50], [2300, 40, 600],
-    [2150, 20, 1350], [1500, 0, 1920], [650, 15, 1780], [0, 30, 2050],
-    [-850, 20, 2150], [-1650, 0, 1850], [-2150, -10, 1150], [-2300, 20, 350],
-    [-1950, 40, -400], [-2200, 20, -1200], [-1900, 30, -1850]
+    [-1500, 30, -2100], [-400, 30, -2150], [700, 20, -2100], [1650, 10, -1950],
+    [2250, 0, -1350], [2350, 5, -550], [2350, 20, 250], [2320, 30, 1050],
+    [2120, 20, 1650], [1480, 5, 1960], [650, 15, 1850], [0, 30, 2060],
+    [-850, 20, 2150], [-1650, 0, 1850], [-2180, -10, 1180], [-2280, 15, 380],
+    [-2260, 30, -420], [-2220, 20, -1200], [-1920, 30, -1850]
   ]);
 }
 
 function beachPoints(): THREE.Vector3[] {
   return xyz([
     [-2000, 10, -1000], [-1500, 25, -1700], [-600, 20, -1950], [300, 10, -1650],
-    [1100, 5, -1500], [1850, 15, -1750], [2350, 20, -1500], [2650, 30, -800],
-    [2400, 10, 300], [1800, 0, 1100], [800, 15, 1850], [-300, 20, 2150],
+    [1150, 5, -1520], [1900, 15, -1720], [2400, 20, -1420], [2620, 25, -720],
+    [2380, 10, 250], [1820, 5, 1120], [920, 15, 1820], [-250, 20, 2140],
     [-1300, 10, 1950], [-1950, 25, 1300], [-2250, 15, 300]
   ]);
 }
 
 function spacePoints(): THREE.Vector3[] {
   return xyz([
-    [-2400, 60, 0], [-2200, 20, -900], [-1500, -30, -1500], [-500, 40, -1750],
-    [600, 90, -1500], [1500, 40, -1750], [2300, -20, -1100], [2600, 30, -200],
-    [2200, 80, 700], [1400, 20, 1300], [500, -40, 1100], [-300, 30, 1650],
-    [-1200, 70, 2050], [-2000, 20, 1550]
+    [-2400, 55, 0], [-2200, 20, -900], [-1500, -25, -1520], [-500, 35, -1760],
+    [600, 80, -1540], [1550, 40, -1720], [2320, -15, -1080], [2580, 25, -200],
+    [2220, 70, 700], [1420, 20, 1340], [500, -35, 1180], [-320, 25, 1700],
+    [-1220, 65, 2040], [-2020, 20, 1520]
   ]);
 }
 
@@ -55,9 +55,9 @@ function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[]): FeatureSpec[] {
       case 'hill':
         return { type, at, w: p / L, h: q };
       case 'loop':
-        return { type, at, w: (p * 2.6) / L, radius: p, narrow: 0.55, blend: 260 / L };
+        return { type, at, w: (p * 2.65) / L, radius: p, narrow: 0.36, blend: 340 / L };
       case 'corkscrew':
-        return { type, at, w: p / L, narrow: 0.55, blend: 150 / L, turns: q || 1 };
+        return { type, at, w: p / L, narrow: 0.56, blend: 200 / L, turns: q || 1 };
       case 'tunnel':
         return { type, at, w: p / L, height: q };
     }
@@ -75,24 +75,23 @@ export const LEVELS: LevelDef[] = [
     badge: 'NEON',
     weatherBadge: 'NEON RAIN',
     weatherTitle: 'NEON RAINSTORM // 霓虹暴雨',
-    desc: 'Skyscraper canyon circuit with AHWOO mega-gantries, twin 360° loops, and three launch gaps.',
+    desc: 'Skyscraper canyon circuit with AHWOO mega-gantries, twin 360° helix loops, and extended air jumps.',
     trackTrackTitle: 'SKYLINE OVERDRIVE',
     points: neonPoints(),
-    hw: 140,
+    hw: 132,
     obstacles: 18,
     scale: 1,
     features: planFeatures(neonPoints(), [
-      ['jump', 0.027, 360, 92, 470],
-      ['descent', 0.132, 700, 260],
-      ['loop', 0.206, 210],
-      ['hill', 0.319, 600, 70],
-      ['tunnel', 0.37, 900, 34],
-      ['corkscrew', 0.45, 1000, 1],
-      ['descent', 0.537, 800, 300],
-      ['jump', 0.601, 360, 100, 520],
-      ['jump', 0.709, 340, 86, 430],
-      ['loop', 0.824, 195],
-      ['descent', 0.932, 550, 220]
+      ['jump', 0.040, 380, 115, 760],
+      ['descent', 0.180, 740, 250],
+      ['loop', 0.260, 235],
+      ['hill', 0.345, 620, 75],
+      ['tunnel', 0.415, 860, 36],
+      ['corkscrew', 0.500, 1320, 1],
+      ['jump', 0.610, 390, 120, 790],
+      ['descent', 0.745, 700, 260],
+      ['loop', 0.810, 220],
+      ['jump', 0.870, 340, 108, 690]
     ]),
     look: {
       sky: 0x100a24,
@@ -132,23 +131,23 @@ export const LEVELS: LevelDef[] = [
     badge: 'SHORE',
     weatherBadge: 'TIDAL MIST',
     weatherTitle: 'BIOLUMINESCENT SQUALL // 潮汐霓雾',
-    desc: 'Sunset coastal ribbon above bioluminescent emerald dunes, wide sweepers, and twin corkscrews.',
+    desc: 'Sunset coastal ribbon above bioluminescent emerald dunes, sweeping helix loop, and wide-air ramps.',
     trackTrackTitle: 'TIDELINE LUXURY',
     points: beachPoints(),
-    hw: 130,
+    hw: 122,
     obstacles: 16,
     scale: 1,
     features: planFeatures(beachPoints(), [
-      ['hill', 0.029, 700, 60],
-      ['corkscrew', 0.108, 1050, 1],
-      ['jump', 0.21, 360, 92, 470],
-      ['descent', 0.329, 800, 280],
-      ['tunnel', 0.404, 800, 32],
-      ['loop', 0.496, 205],
-      ['descent', 0.622, 700, 240],
-      ['jump', 0.69, 340, 100, 500],
-      ['hill', 0.807, 600, 70],
-      ['corkscrew', 0.879, 1000, 1]
+      ['hill', 0.025, 680, 68],
+      ['corkscrew', 0.105, 1300, 1],
+      ['jump', 0.215, 380, 115, 760],
+      ['descent', 0.355, 720, 250],
+      ['tunnel', 0.425, 820, 34],
+      ['loop', 0.505, 230],
+      ['descent', 0.595, 680, 220],
+      ['jump', 0.665, 380, 120, 780],
+      ['hill', 0.805, 620, 75],
+      ['corkscrew', 0.875, 1240, 1]
     ]),
     look: {
       sky: 0xffb7d9,
@@ -188,24 +187,24 @@ export const LEVELS: LevelDef[] = [
     badge: 'DEEP SPACE',
     weatherBadge: 'SOLAR FLARES',
     weatherTitle: 'SOLAR FLARE SURGE // 太阳耀斑',
-    desc: 'Orbital wormhole ring suspended between ringed gas giants, deep-space drops, and zero-G loops.',
+    desc: 'Orbital wormhole ring suspended between ringed gas giants, high-hang deep-space jumps, and zero-G loops.',
     trackTrackTitle: 'STARLIGHT APEX',
     points: spacePoints(),
-    hw: 120,
+    hw: 114,
     obstacles: 20,
     scale: 1,
     features: planFeatures(spacePoints(), [
-      ['hill', 0.029, 800, 120],
-      ['tunnel', 0.092, 800, 34],
-      ['descent', 0.155, 800, 330],
-      ['jump', 0.218, 360, 110, 560],
-      ['loop', 0.35, 210],
-      ['corkscrew', 0.477, 1050, 1],
-      ['hill', 0.569, 700, 130],
-      ['descent', 0.625, 850, 350],
-      ['jump', 0.692, 340, 95, 480],
-      ['tunnel', 0.796, 700, 34],
-      ['loop', 0.87, 190]
+      ['hill', 0.025, 720, 110],
+      ['tunnel', 0.095, 780, 36],
+      ['descent', 0.165, 720, 300],
+      ['jump', 0.230, 380, 125, 800],
+      ['loop', 0.375, 235],
+      ['corkscrew', 0.455, 1300, 1],
+      ['hill', 0.565, 650, 120],
+      ['descent', 0.625, 740, 310],
+      ['jump', 0.690, 360, 118, 760],
+      ['tunnel', 0.830, 700, 36],
+      ['loop', 0.900, 220]
     ]),
     look: {
       sky: 0x03040d,
@@ -243,12 +242,13 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
   const jumps: JumpSpec[] = features
     .filter((f): f is FeatureSpec & { type: 'jump'; h: number; gap: number } => f.type === 'jump')
     .map((f) => {
-      const h = f.h ?? 80;
-      const gap = f.gap ?? 0.03;
+      const h = f.h ?? 110;
+      const gap = f.gap ?? 0.055;
       const lip = f.at + f.w;
       const land = lip + gap;
-      const landLen = f.w * 1.7;
-      const deck = h * 0.16;
+      const landLen = f.w * 1.85;
+      const deck = h * 0.14;
+      const launchSlopeRatio = (gap / f.w) * 0.58;
       return {
         ...f,
         h,
@@ -258,7 +258,7 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
         landLen,
         deck,
         end: land + landLen,
-        apex: ((gap * 1.9 * h) / f.w + (h - deck)) / 4
+        apex: Math.max(92, h * launchSlopeRatio + (h - deck) * 0.45)
       };
     });
 
@@ -280,8 +280,9 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
     }
     for (const j of jumps) {
       if (u >= j.at && u < j.lip) {
+        // Kicker ramp: zero slope at entry (k=0), positive launch angle at lip (k=1)
         const k = (u - j.at) / j.w;
-        h += j.h * k * k * (3 - 2 * k);
+        h += j.h * k * k * (2.0 - k);
       } else if (u >= j.lip && u < j.land) {
         h += j.h + (j.deck - j.h) * ((u - j.lip) / j.gap);
       } else if (u >= j.land && u <= j.end) {
@@ -297,7 +298,9 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
     for (const j of jumps) {
       if (u >= j.lip && u < j.land) {
         const k = (u - j.lip) / j.gap;
-        return j.apex * 4 * k * (1 - k);
+        // Slightly fuller upper hang curve so airtime feels floaty and dramatic
+        const arch = 4 * k * (1 - k);
+        return j.apex * Math.pow(arch, 0.88);
       }
     }
     return 0;
@@ -375,7 +378,7 @@ export function buildTrack(def: LevelDef): TrackData {
   const pts = scale === 1 ? def.points : def.points.map((p) => new THREE.Vector3(p.x * scale, p.y, p.z * scale));
   const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
   const len = curve.getLength();
-  const steps = Math.max(700, Math.round(len / 5.5));
+  const steps = Math.max(800, Math.round(len / 5.0));
   const frames = buildFrames(curve, steps);
   const elev = makeElevation(def.features);
   const hw = def.hw;
@@ -384,8 +387,8 @@ export function buildTrack(def: LevelDef): TrackData {
   const tapers = def.features
     .filter((f) => f.type === 'loop' || f.type === 'corkscrew')
     .map((f) => ({
-      at: f.at - (f.blend ?? 0.014),
-      to: f.at + f.w + (f.blend ?? 0.014),
+      at: f.at - (f.blend ?? 0.018),
+      to: f.at + f.w + (f.blend ?? 0.018),
       min: f.narrow ?? 0.45
     }));
 
@@ -395,7 +398,7 @@ export function buildTrack(def: LevelDef): TrackData {
     for (const t of tapers) {
       if (u < t.at || u > t.to) continue;
       const k = (u - t.at) / (t.to - t.at);
-      w = Math.min(w, 1 - (1 - t.min) * Math.pow(Math.sin(Math.PI * k), 0.8));
+      w = Math.min(w, 1 - (1 - t.min) * Math.pow(Math.sin(Math.PI * k), 0.75));
     }
     return w;
   }
@@ -413,7 +416,7 @@ export function buildTrack(def: LevelDef): TrackData {
           up: frames[i].up.clone()
         },
         drift: len * f.w,
-        radius: f.radius ?? 100
+        radius: f.radius ?? 220
       };
     });
 
@@ -441,11 +444,16 @@ export function buildTrack(def: LevelDef): TrackData {
 
     for (const L of loops) {
       if (u < L.at || u > L.at + L.w) continue;
-      const D = L.radius * 0.25;
+      // Ensure lateral helical offset exceeds the tapered loop road width (2 * hw * narrow)
+      // so the ascending and descending decks have wide open sky clearance and never clip.
+      const narrow = L.narrow ?? 0.36;
+      const loopFullWidth = 2 * hw * narrow;
+      const D = Math.max(L.radius * 0.54, (loopFullWidth + 56) / 1.414);
       const lpAt = (uu: number) => {
-        const k = (uu - L.at) / L.w;
+        const clampedU = Math.max(L.at, Math.min(L.at + L.w, uu));
+        const k = (clampedU - L.at) / L.w;
         const ang = k * Math.PI * 2;
-        const xx = uu * steps;
+        const xx = clampedU * steps;
         const ii = Math.min(steps - 1, Math.floor(xx));
         const ff = xx - ii;
         const fa = frames[ii];
@@ -453,17 +461,21 @@ export function buildTrack(def: LevelDef): TrackData {
         const tt = fa.t.clone().lerp(fb.t, ff).normalize();
         const ss = fa.s.clone().lerp(fb.s, ff).normalize();
         const uv = fa.up.clone().lerp(fb.up, ff).normalize();
+        const baseH = elev.value(clampedU);
         return curve
-          .getPointAt(((uu % 1) + 1) % 1)
+          .getPointAt(((clampedU % 1) + 1) % 1)
+          .addScaledVector(uv, baseH)
           .addScaledVector(tt, L.radius * Math.sin(ang))
           .addScaledVector(uv, L.radius * (1 - Math.cos(ang)))
           .addScaledVector(ss, D * Math.sin(ang) * Math.sin(Math.PI * k));
       };
-      const d = 0.00035;
-      const uA = Math.max(L.at, u - d);
-      const uB = Math.min(L.at + L.w, u + d);
+      const d = 0.00045;
+      const uA = u - d;
+      const uB = u + d;
       const lp = lpAt(u);
-      const lt = lpAt(uB).sub(lpAt(uA)).normalize();
+      const pA = uA < L.at ? curve.getPointAt(((uA % 1) + 1) % 1).addScaledVector(up, elev.value(((uA % 1) + 1) % 1)) : lpAt(uA);
+      const pB = uB > L.at + L.w ? curve.getPointAt(((uB % 1) + 1) % 1).addScaledVector(up, elev.value(((uB % 1) + 1) % 1)) : lpAt(uB);
+      const lt = pB.sub(pA).normalize();
       const lu = new THREE.Vector3().crossVectors(s, lt).normalize();
       pos.copy(lp);
       t = lt;
