@@ -39,6 +39,7 @@ export interface FeatureSpec {
   blend?: number;
   turns?: number;
   height?: number;
+  underwater?: boolean;
 }
 
 export interface JumpSpec extends FeatureSpec {
@@ -191,7 +192,7 @@ export interface HazardAlert {
 }
 
 export interface LevelDef {
-  id: 'neon' | 'beach' | 'space';
+  id: 'neon' | 'beach' | 'space' | 'space_beach';
   num: string;
   name: string;
   cn: string;
@@ -202,6 +203,7 @@ export interface LevelDef {
   weatherTitle: string;
   desc: string;
   trackTrackTitle: string;
+  isSprint?: boolean;
   points: THREE.Vector3[];
   hw: number;
   obstacles: number;
@@ -210,6 +212,76 @@ export interface LevelDef {
   look: LevelLook;
   road: RoadPalette;
   theme: LevelTheme;
+}
+
+export type PaintJobId = 'obsidian' | 'pearl' | 'cobalt' | 'crimson' | 'jade' | 'bronze';
+export type NeonTrimId = 'champagne' | 'cyan' | 'magenta' | 'biolume' | 'violet' | 'glacier';
+export type RimStyleId = 'turbine' | 'aero' | 'split' | 'orbit';
+
+export interface VehicleCustomization {
+  paintId: PaintJobId;
+  neonId: NeonTrimId;
+  rimId: RimStyleId;
+}
+
+export interface PaintPreset {
+  id: PaintJobId;
+  name: string;
+  color: number;
+  hex: string;
+  metalness: number;
+  roughness: number;
+  clearcoat: number;
+  hardwareColor: number;
+}
+
+export interface NeonPreset {
+  id: NeonTrimId;
+  name: string;
+  color: number;
+  secondaryColor: number;
+  hex: string;
+}
+
+export interface RimStylePreset {
+  id: RimStyleId;
+  name: string;
+  tag: string;
+}
+
+export interface DriftSnapshot {
+  active: boolean;
+  dir: number;
+  tier: 0 | 1 | 2 | 3;
+  charge: number;
+  liveScore: number;
+  totalScore: number;
+  lastBonusLabel: string;
+}
+
+export type AnnouncerEventKind =
+  | 'race_start'
+  | 'overtake'
+  | 'lead_taken'
+  | 'overtaken'
+  | 'long_drift'
+  | 'drift_boost'
+  | 'hazard_debris'
+  | 'hazard_fog'
+  | 'hazard_surge'
+  | 'obstacle_crash'
+  | 'mega_jump'
+  | 'weather_shift'
+  | 'final_lap'
+  | 'finish_win'
+  | 'finish_other';
+
+export interface AnnouncerSnapshot {
+  enabled: boolean;
+  speaking: boolean;
+  caption: string;
+  tag: string;
+  urgency: 'info' | 'hype' | 'alert';
 }
 
 export interface StandingEntry {
@@ -230,6 +302,8 @@ export interface HudSnapshot {
   energy: number;
   lap: number;
   totalLaps: number;
+  isSprint: boolean;
+  progressPct: number;
   rank: number;
   totalRacers: number;
   standings: StandingEntry[];
@@ -244,6 +318,9 @@ export interface HudSnapshot {
   reconSecondsLeft: number;
   weather: WeatherSnapshot;
   hazardAlert: HazardAlert;
+  drift: DriftSnapshot;
+  announcer: AnnouncerSnapshot;
+  replayShot: string;
   trackStats: {
     lengthKm: string;
     widthM: number;

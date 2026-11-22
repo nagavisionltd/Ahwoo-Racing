@@ -4,11 +4,13 @@ import { CountdownOverlay } from './components/CountdownOverlay';
 import { GarageSelect } from './components/GarageSelect';
 import { PauseModal } from './components/PauseModal';
 import { RaceHud } from './components/RaceHud';
+import { RadioHub, type RadioStatus } from './components/RadioHub';
 import { ReconOverlay } from './components/ReconOverlay';
 import { ResultsModal } from './components/ResultsModal';
 import { TitleScreen } from './components/TitleScreen';
 import { AhwooEngine } from './game/engine';
-import type { GameStep, HudSnapshot } from './game/types';
+import type { GameStep, HudSnapshot, VehicleCustomization } from './game/types';
+import { getDefaultCustomization } from './game/vehicles';
 
 const INITIAL_HUD: HudSnapshot = {
   speedKmh: 0,
@@ -16,6 +18,8 @@ const INITIAL_HUD: HudSnapshot = {
   energy: 1,
   lap: 1,
   totalLaps: 3,
+  isSprint: false,
+  progressPct: 0,
   rank: 1,
   totalRacers: 4,
   standings: [],
@@ -43,6 +47,23 @@ const INITIAL_HUD: HudSnapshot = {
     label: '',
     kind: 'debris'
   },
+  drift: {
+    active: false,
+    dir: 0,
+    tier: 0,
+    charge: 0,
+    liveScore: 0,
+    totalScore: 0,
+    lastBonusLabel: ''
+  },
+  announcer: {
+    enabled: true,
+    speaking: false,
+    caption: '',
+    tag: 'RACE COMMENTARY',
+    urgency: 'info'
+  },
+  replayShot: 'CLOSE-UP · THRUSTER',
   trackStats: {
     lengthKm: '11.8',
     widthM: 280,
@@ -60,9 +81,16 @@ export default function App() {
 
   const [step, setStep] = useState<GameStep>('home');
   const [selectedShipId, setSelectedShipId] = useState(0);
+  const [customization, setCustomization] = useState<VehicleCustomization>(() => getDefaultCustomization(0));
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [previewLevelIdx, setPreviewLevelIdx] = useState(0);
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
+  const [radioOpen, setRadioOpen] = useState(false);
+  const [radioStatus, setRadioStatus] = useState<RadioStatus>({
+    playing: false,
+    ready: false,
+    source: 'spotify'
+  });
 
   useEffect(() => {
     const mount = canvasMountRef.current;
@@ -72,6 +100,7 @@ export default function App() {
       onStepChange: (nextStep) => setStep(nextStep),
       onHudUpdate: (snapshot) => setHud(snapshot),
       onShipChange: (id) => setSelectedShipId(id),
+      onCustomizationChange: (nextCustom) => setCustomization(nextCustom),
       onLevelChange: (sel, prev) => {
         setSelectedLevel(sel);
         setPreviewLevelIdx(prev);
@@ -85,6 +114,19 @@ export default function App() {
     };
   }, []);
 
+  // Global [R] shortcut to toggle Spotify Radio Hub cleanly from any screen
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.code === 'KeyR') {
+        engineRef.current?.audio.playUiClick();
+        setRadioOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const handleAttachTurntable = useCallback((canvas: HTMLCanvasElement | null) => {
     engineRef.current?.attachTurntable(canvas);
   }, []);
@@ -96,6 +138,12 @@ export default function App() {
     const muted = eng.audio.toggleMute();
     setHud((prev) => ({ ...prev, muted }));
   }, []);
+
+  const handleSpotifyPlaybackChange = useCallback((playing: boolean) => {
+    engineRef.current?.audio.setRadioOverride(playing);
+  }, []);
+
+  const isInRaceHud = step === 'race' || step === 'countdown';
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#050712]">
@@ -116,7 +164,9 @@ export default function App() {
       {step === 'driver' && (
         <GarageSelect
           selectedShipId={selectedShipId}
+          customization={customization}
           onSelectShip={(id) => engineRef.current?.selectShip(id)}
+          onChangeCustomization={(patch) => engineRef.current?.setCustomization(patch)}
           onAttachTurntable={handleAttachTurntable}
           onBack={() => {
             engineRef.current?.audio.playUiClick();
@@ -155,11 +205,13 @@ export default function App() {
         />
       )}
 
-      {(step === 'race' || step === 'countdown' || step === 'paused') && (
+      {(step === 'race' || step === 'countdown') && (
         <RaceHud
           levelIdx={previewLevelIdx}
           hud={hud}
+          radioStatus={radioStatus}
           onToggleMute={handleToggleMute}
+          onToggleRadio={() => setRadioOpen((v) => !v)}
           onCycleWeather={() => engineRef.current?.cycleWeather()}
           onPause={() => engineRef.current?.pauseRace()}
         />
@@ -169,6 +221,9 @@ export default function App() {
 
       {step === 'paused' && (
         <PauseModal
+          replayShot={hud.replayShot}
+          onCutCamera={() => engineRef.current?.cutReplayCamera()}
+          onToggleRadio={() => setRadioOpen((v) => !v)}
           onResume={() => engineRef.current?.resumeRace()}
           onRestart={() => engineRef.current?.restartRace()}
           onCircuits={() => engineRef.current?.setStep('level')}
@@ -181,11 +236,22 @@ export default function App() {
           levelIdx={previewLevelIdx}
           shipId={selectedShipId}
           hud={hud}
+          onCutCamera={() => engineRef.current?.cutReplayCamera()}
           onRaceAgain={() => engineRef.current?.startCountdown()}
           onChangeCircuit={() => engineRef.current?.setStep('level')}
           onGarage={() => engineRef.current?.setStep('driver')}
         />
       )}
+
+      {/* Persistent Spotify Radio Hub mounted across all screens */}
+      <RadioHub
+        open={radioOpen}
+        muted={hud.muted}
+        showFloatingTrigger={!isInRaceHud && step !== 'paused'}
+        onToggleOpen={() => setRadioOpen((v) => !v)}
+        onStatusChange={setRadioStatus}
+        onSpotifyPlaybackChange={handleSpotifyPlaybackChange}
+      />
     </div>
   );
 }

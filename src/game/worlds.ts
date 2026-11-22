@@ -44,6 +44,10 @@ export function disposeGroup(g: THREE.Group, scene: THREE.Scene): void {
   scene.remove(g);
 }
 
+function clampTrackU(trk: TrackData, u: number): number {
+  return trk.def.isSprint ? Math.max(0, Math.min(1, u)) : ((u % 1) + 1) % 1;
+}
+
 function ribbonGeometry(
   trk: TrackData,
   offset: number,
@@ -57,17 +61,18 @@ function ribbonGeometry(
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const steps = Math.max(2, Math.round(trk.steps * (to - from)));
+  const span = Math.max(0.0001, to - from);
+  const steps = Math.max(6, Math.round(trk.steps * span * 1.8));
   for (let k = 0; k <= steps; k++) {
-    const i = Math.round(from * trk.steps) + k;
-    const u = (((i / trk.steps) % 1) + 1) % 1;
+    const uRaw = from + span * (k / steps);
+    const u = clampTrackU(trk, uRaw);
     const f = trk.fr(u);
     const ws = taper ? trk.widthAt(u) : 1;
-    const base = f.pos.clone().addScaledVector(f.s, offset * ws);
+    const base = f.pos.clone().addScaledVector(f.s, offset * ws).addScaledVector(f.up, yOff);
     const a = base.clone().addScaledVector(f.s, (-width * ws) / 2);
     const b = base.clone().addScaledVector(f.s, (width * ws) / 2);
-    pos.push(a.x, a.y + yOff, a.z, b.x, b.y + yOff, b.z);
-    const v = ((i / trk.steps) * trk.len) / (vScale || 40);
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    const v = (uRaw * trk.len) / (vScale || 40);
     uv.push(0, v, 1, v);
     if (k < steps) {
       const j = k * 2;
@@ -93,16 +98,17 @@ function wallGeometry(
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const steps = Math.max(2, Math.round(trk.steps * (to - from)));
+  const span = Math.max(0.0001, to - from);
+  const steps = Math.max(6, Math.round(trk.steps * span * 1.8));
   for (let k = 0; k <= steps; k++) {
-    const i = Math.round(from * trk.steps) + k;
-    const u = (((i / trk.steps) % 1) + 1) % 1;
+    const uRaw = from + span * (k / steps);
+    const u = clampTrackU(trk, uRaw);
     const f = trk.fr(u);
     const ws = taper ? trk.widthAt(u) : 1;
     const base = f.pos.clone().addScaledVector(f.s, offset * ws);
     const top = base.clone().addScaledVector(f.up, height);
     pos.push(base.x, base.y, base.z, top.x, top.y, top.z);
-    const v = ((i / trk.steps) * trk.len) / 26;
+    const v = (uRaw * trk.len) / 26;
     uv.push(v, 0, v, 1);
     if (k < steps) {
       const j = k * 2;
@@ -123,11 +129,14 @@ function arch(
   title: string,
   kanji: string,
   color: string,
-  group: THREE.Group
+  group: THREE.Group,
+  allowInSpecial = false
 ): void {
-  const f = trk.fr(u);
+  const uNorm = clampTrackU(trk, u);
+  if (trk.elev.isGap(uNorm) || (!allowInSpecial && trk.inSpecial(uNorm))) return;
+  const f = trk.fr(uNorm);
   const p = f.pos;
-  const span = trk.hw + 12;
+  const span = f.width + 12;
   const pillarMat = new THREE.MeshStandardMaterial({ color: 0x18203c, metalness: 0.75, roughness: 0.32 });
   const neonMat = new THREE.MeshBasicMaterial({ color, toneMapped: false });
   const g = new THREE.Group();
@@ -191,7 +200,9 @@ function tracksideSign(
   height: number,
   group: THREE.Group
 ): void {
-  const f = trk.fr(u);
+  const uNorm = clampTrackU(trk, u);
+  if (trk.elev.isGap(uNorm)) return;
+  const f = trk.fr(uNorm);
   const tex = canvasTexture(768, 220, (g) => {
     g.fillStyle = 'rgba(8,12,30,0.9)';
     g.fillRect(0, 0, 768, 220);
@@ -334,7 +345,7 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     const a = Math.random() * Math.PI * 2;
     const r = 360 + Math.random() * 3000;
     const p = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.9);
-    if (blocked(p, trk.hw + 115)) continue;
+    if (blocked(p, trk.hw + 145)) continue;
     towers.push({
       p,
       h: 140 + Math.random() * 700,
@@ -421,39 +432,77 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     group.add(m);
   }
 
-  // Ahwoo Skyline Billboards on buildings
-  const billboards = [
-    ['AHWOO', '#f5c451'],
-    ['天际回廊', '#00f0ff'],
-    ['SOVEREIGN', '#ffd700'],
-    ['AHWOO GP', '#00f0ff'],
-    ['极速', '#ff2e93'],
-    ['APEX', '#f5c451']
+  // Tall vertical cyberpunk kanji & brand holo-banners on skyscrapers (inspired by ref megacity)
+  const verticalBannerLabels: [string, string, string][] = [
+    ['未技', 'AHWOO', '#ff2e93'],
+    ['天际', 'SKYLINE', '#00f0ff'],
+    ['极速', 'OVERDRIVE', '#f5c451'],
+    ['王者', 'SOVEREIGN', '#8b5cf6'],
+    ['未来', 'APEX GP', '#00ffcc'],
+    ['零式', 'CUBIC', '#ff2e93']
   ];
-  towers.slice(0, 42).forEach((t, i) => {
-    const [label, col] = billboards[i % billboards.length];
-    const tex = canvasTexture(256, 128, (g) => {
-      g.fillStyle = 'rgba(6,10,26,0.92)';
-      g.fillRect(0, 0, 256, 128);
+  const verticalBannerMats = verticalBannerLabels.map(([kanji, sub, col]) => {
+    const tex = canvasTexture(128, 512, (g) => {
+      g.fillStyle = 'rgba(6,10,28,0.88)';
+      g.fillRect(0, 0, 128, 512);
       g.strokeStyle = col;
-      g.lineWidth = 5;
-      g.strokeRect(4, 4, 248, 120);
+      g.lineWidth = 6;
+      g.strokeRect(4, 4, 120, 504);
       g.textAlign = 'center';
       g.fillStyle = '#ffffff';
       g.shadowColor = col;
-      g.shadowBlur = 18;
-      g.font = "bold 40px 'Orbitron', 'Noto Sans SC', sans-serif";
-      g.fillText(label, 128, 78);
+      g.shadowBlur = 22;
+      g.font = "bold 72px 'Noto Sans SC', sans-serif";
+      const chars = Array.from(kanji);
+      chars.forEach((ch, idx) => {
+        g.fillText(ch, 64, 125 + idx * 120);
+      });
+      g.fillStyle = col;
+      g.font = "bold 20px 'Orbitron', sans-serif";
+      g.fillText(sub, 64, 470);
     });
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(46, 23),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, toneMapped: false, depthWrite: false })
-    );
-    const side = i % 2 ? 1 : -1;
-    sign.position.set(t.p.x + side * (t.w / 2 + 2), Math.min(310, 95 + t.h * 0.5), t.p.z);
-    sign.rotation.y = (i % 4) * (Math.PI / 2);
+    return new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      depthWrite: false
+    });
+  });
+
+  const bannerGeo = new THREE.PlaneGeometry(34, 155);
+  towers.slice(0, 54).forEach((t, i) => {
+    const mat = verticalBannerMats[i % verticalBannerMats.length];
+    const sign = new THREE.Mesh(bannerGeo, mat);
+    const face = i % 4;
+    const offsetX = face === 1 ? t.w * 0.52 : face === 3 ? -t.w * 0.52 : 0;
+    const offsetZ = face === 0 ? t.d * 0.52 : face === 2 ? -t.d * 0.52 : 0;
+    sign.position.set(t.p.x + offsetX, Math.min(340, 80 + t.h * 0.45), t.p.z + offsetZ);
+    sign.rotation.y = face * (Math.PI / 2);
     group.add(sign);
   });
+
+  // Ambient flying sky-traffic shuttles weaving through the city skyline
+  const trafficCount = 24;
+  const shuttleHull = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(8, 2.2, 18),
+    new THREE.MeshStandardMaterial({ color: 0x161f38, metalness: 0.8, roughness: 0.25 }),
+    trafficCount
+  );
+  const shuttleGlow = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(8.4, 0.9, 3.2),
+    new THREE.MeshBasicMaterial({ color: 0xff2e93, toneMapped: false }),
+    trafficCount
+  );
+  shuttleHull.frustumCulled = false;
+  shuttleGlow.frustumCulled = false;
+  const trafficData = Array.from({ length: trafficCount }, (_, i) => ({
+    radius: 750 + (i % 5) * 420,
+    altitude: 190 + (i % 6) * 75,
+    speed: (i % 2 === 0 ? 1 : -1) * (0.045 + (i % 4) * 0.015),
+    phase: (i / trafficCount) * Math.PI * 2
+  }));
+  group.add(shuttleHull, shuttleGlow);
 
   // Floating lanterns beside the road
   const lanternCount = 80;
@@ -501,7 +550,7 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
   for (let u = 0.05; u < 0.99; u += 0.115) {
     arch(trk, u, 'AHWOO GP', '天际回廊', u % 0.25 < 0.06 ? '#f5c451' : '#00f0ff', group);
   }
-  tracksideSign(trk, 0.045, 'AHWOO RACING', '#f5c451', 26, group);
+  tracksideSign(trk, 0.022, 'AHWOO RACING', '#f5c451', 26, group);
   tracksideSign(trk, 0.52, 'OVERDRIVE', '#00f0ff', 24, group);
 
   world.update = (_dt, now) => {
@@ -525,6 +574,22 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
       lanternMesh.setMatrixAt(i, _m4);
     }
     lanternMesh.instanceMatrix.needsUpdate = true;
+
+    const nowSec = now * 0.001;
+    for (let i = 0; i < trafficCount; i++) {
+      const tr = trafficData[i];
+      const angT = tr.phase + nowSec * tr.speed;
+      const px = Math.cos(angT) * tr.radius;
+      const pz = Math.sin(angT) * tr.radius;
+      const yaw = -angT + (tr.speed > 0 ? 0 : Math.PI);
+      _q.setFromEuler(_euler.set(0, yaw, 0));
+      _m4.compose(_sc.set(px, tr.altitude, pz), _q, _one);
+      shuttleHull.setMatrixAt(i, _m4);
+      _m4.compose(_sc.set(px - Math.sin(yaw) * 8.2, tr.altitude, pz - Math.cos(yaw) * 8.2), _q, _one);
+      shuttleGlow.setMatrixAt(i, _m4);
+    }
+    shuttleHull.instanceMatrix.needsUpdate = true;
+    shuttleGlow.instanceMatrix.needsUpdate = true;
   };
 }
 
@@ -835,6 +900,32 @@ function buildSpaceWorld(def: LevelDef, trk: TrackData, group: THREE.Group, worl
   orbitalCore.computeBoundingSphere();
   group.add(orbitalBody, orbitalCore);
 
+  // Massive open-lattice skeletal truss drydock station floating beside the asteroid belt
+  const trussGroup = new THREE.Group();
+  trussGroup.position.set(2200, 480, 1950);
+  trussGroup.rotation.set(0.28, -0.65, 0.38);
+  const trussSteel = new THREE.MeshStandardMaterial({ color: 0x202848, metalness: 0.88, roughness: 0.28 });
+  const trussGlow = new THREE.MeshBasicMaterial({ color: 0x7fe8ff, toneMapped: false });
+  for (const sx of [-42, 42]) {
+    for (const sy of [-42, 42]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 920), trussSteel);
+      rail.position.set(sx, sy, 0);
+      trussGroup.add(rail);
+    }
+  }
+  for (let z = -420; z <= 420; z += 105) {
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(92, 92, 8), trussSteel);
+    frame.position.z = z;
+    trussGroup.add(frame);
+    const beacon = new THREE.Mesh(new THREE.BoxGeometry(96, 4, 4), trussGlow);
+    beacon.position.set(0, 48, z);
+    trussGroup.add(beacon);
+  }
+  const dockBay = new THREE.Mesh(new THREE.BoxGeometry(190, 95, 220), trussSteel);
+  dockBay.position.set(0, -18, -320);
+  trussGroup.add(dockBay);
+  group.add(trussGroup);
+
   for (let u = 0.07; u < 0.99; u += 0.18) {
     arch(trk, u, 'EVENT HORIZON', '视界', '#9d7bff', group);
   }
@@ -859,6 +950,664 @@ function buildSpaceWorld(def: LevelDef, trk: TrackData, group: THREE.Group, worl
   };
 }
 
+function underwaterDomeGeometry(
+  trk: TrackData,
+  from: number,
+  to: number,
+  archHeight: number
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const span = Math.max(0.0001, to - from);
+  const uSteps = Math.max(12, Math.round(trk.steps * span * 1.4));
+  const arcSegs = 12;
+  const ringVerts = arcSegs + 1;
+
+  for (let k = 0; k <= uSteps; k++) {
+    const uRaw = from + span * (k / uSteps);
+    const u = clampTrackU(trk, uRaw);
+    const f = trk.fr(u);
+    const halfSpan = f.width + 5;
+    const vCoord = (uRaw * trk.len) / 60;
+
+    for (let a = 0; a <= arcSegs; a++) {
+      const theta = (a / arcSegs) * Math.PI; // 0 (right base) -> PI (left base)
+      const sOff = Math.cos(theta) * halfSpan;
+      const uOff = Math.sin(theta) * archHeight;
+      const vx = f.pos.x + f.s.x * sOff + f.up.x * uOff;
+      const vy = f.pos.y + f.s.y * sOff + f.up.y * uOff;
+      const vz = f.pos.z + f.s.z * sOff + f.up.z * uOff;
+      pos.push(vx, vy, vz);
+      uv.push(a / arcSegs, vCoord);
+    }
+
+    if (k < uSteps) {
+      const base = k * ringVerts;
+      for (let a = 0; a < arcSegs; a++) {
+        const i0 = base + a;
+        const i1 = base + a + 1;
+        const i2 = base + ringVerts + a;
+        const i3 = base + ringVerts + a + 1;
+        idx.push(i0, i1, i2, i1, i3, i2);
+      }
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildSpaceBeachWorld(_def: LevelDef, trk: TrackData, group: THREE.Group, world: BuiltWorld): void {
+  // 1. Cosmic-Tropical Sunset Starfield Sky Dome
+  const skyTex = canvasTexture(8, 512, (g) => {
+    const grd = g.createLinearGradient(0, 0, 0, 512);
+    grd.addColorStop(0.0, '#03081c');
+    grd.addColorStop(0.28, '#0c1c45');
+    grd.addColorStop(0.46, '#1a3a6a');
+    grd.addColorStop(0.55, '#3b5b7a');
+    grd.addColorStop(0.62, '#143c5e');
+    grd.addColorStop(0.8, '#07223e');
+    grd.addColorStop(1.0, '#020f22');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 8, 512);
+  });
+  group.add(
+    new THREE.Mesh(
+      new THREE.SphereGeometry(11000, 32, 24),
+      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })
+    )
+  );
+
+  // Stars overhead above the cosmic ocean horizon
+  const starCount = 3400;
+  const sp = new Float32Array(starCount * 3);
+  const scol = new Float32Array(starCount * 3);
+  const cTmp = new THREE.Color();
+  for (let i = 0; i < starCount; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(3200 + Math.random() * 5200);
+    sp[i * 3] = v.x;
+    sp[i * 3 + 1] = Math.abs(v.y) * 0.95 + 160;
+    sp[i * 3 + 2] = v.z;
+    cTmp.setHSL(0.48 + Math.random() * 0.16, 0.45, 0.72 + Math.random() * 0.25);
+    scol[i * 3] = cTmp.r;
+    scol[i * 3 + 1] = cTmp.g;
+    scol[i * 3 + 2] = cTmp.b;
+  }
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  sg.setAttribute('color', new THREE.BufferAttribute(scol, 3));
+  group.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 4.5, vertexColors: true, fog: false, transparent: true, opacity: 0.92 })));
+
+  // Giant ringed cosmic ocean planet + golden horizon sun
+  const planet = new THREE.Mesh(
+    new THREE.SphereGeometry(480, 40, 28),
+    new THREE.MeshBasicMaterial({ map: planetTexture('#8df6ff', '#2c6bd8', '#0a1c48', true), fog: false })
+  );
+  planet.position.set(-2400, 1750, -3400);
+  group.add(planet);
+  const planetRing = new THREE.Mesh(
+    new THREE.RingGeometry(640, 1020, 84),
+    new THREE.MeshBasicMaterial({ color: 0x52f7e4, transparent: true, opacity: 0.34, side: THREE.DoubleSide, fog: false, depthWrite: false })
+  );
+  planetRing.position.copy(planet.position);
+  planetRing.rotation.set(1.18, 0.32, 0.22);
+  group.add(planetRing);
+
+  const horizonSun = new THREE.Mesh(
+    new THREE.SphereGeometry(280, 32, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffe4b8, fog: false })
+  );
+  horizonSun.position.set(4200, 340, -5200);
+  group.add(horizonSun);
+  const sunHalo = glowPlane('rgba(255,212,135,0.48)', 2600, 0.62);
+  sunHalo.position.copy(horizonSun.position);
+  sunHalo.lookAt(0, 0, 0);
+  group.add(sunHalo);
+
+  // 2. Semi-transparent animated ocean water surface (y = -20) visible both above and from inside underwater tunnels
+  const OCEAN_Y = -20;
+  const SEABED_Y = -220;
+  const oceanTex = canvasTexture(512, 512, (g) => {
+    g.fillStyle = '#0d5678';
+    g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 120; i++) {
+      g.strokeStyle = i % 3 === 0 ? 'rgba(138, 252, 255, 0.22)' : 'rgba(54, 245, 216, 0.14)';
+      g.lineWidth = 1.5 + Math.random() * 3;
+      const y = Math.random() * 512;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(170, y + 26, 340, y - 26, 512, y + 4);
+      g.stroke();
+    }
+  });
+  oceanTex.wrapS = oceanTex.wrapT = THREE.RepeatWrapping;
+  oceanTex.repeat.set(28, 28);
+  const oceanMat = new THREE.MeshStandardMaterial({
+    color: 0x1990ba,
+    map: oceanTex,
+    emissive: 0x0a4d6e,
+    emissiveIntensity: 0.45,
+    metalness: 0.55,
+    roughness: 0.14,
+    transparent: true,
+    opacity: 0.56,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const oceanPlane = new THREE.Mesh(new THREE.PlaneGeometry(15000, 15000), oceanMat);
+  oceanPlane.rotation.x = -Math.PI / 2;
+  oceanPlane.position.y = OCEAN_Y;
+  oceanPlane.renderOrder = 1;
+  group.add(oceanPlane);
+
+  // 3. Textured Seabed Terrain at y = -220
+  const seabedTex = canvasTexture(512, 512, (g) => {
+    g.fillStyle = '#072b42';
+    g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 2400; i++) {
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(54,245,216,0.12)' : 'rgba(12,68,98,0.22)';
+      g.fillRect(Math.random() * 512, Math.random() * 512, 3, 3);
+    }
+  });
+  seabedTex.wrapS = seabedTex.wrapT = THREE.RepeatWrapping;
+  seabedTex.repeat.set(24, 24);
+  const seabed = new THREE.Mesh(
+    new THREE.PlaneGeometry(15000, 15000),
+    new THREE.MeshStandardMaterial({ map: seabedTex, color: 0x185c78, roughness: 0.92, metalness: 0.05 })
+  );
+  seabed.rotation.x = -Math.PI / 2;
+  seabed.position.y = SEABED_Y;
+  group.add(seabed);
+
+  // 4. Coastal Islands & Palm Trees at Start Bay (u~0.03), Mid Atoll (u~0.55), and Finish Bay (u~0.96)
+  const islandSpecs: [number, number, number, number][] = [
+    [-3150, -34, 2350, 900],
+    [2050, -32, 780, 760],
+    [4100, -30, -1550, 880]
+  ];
+  const islandSandMat = new THREE.MeshStandardMaterial({ color: 0x2ca88e, emissive: 0x0a4a3f, emissiveIntensity: 0.25, roughness: 0.85 });
+  const palmPositions: { x: number; y: number; z: number; h: number; lean: number; rot: number }[] = [];
+
+  for (const [ix, iy, iz, ir] of islandSpecs) {
+    const mound = new THREE.Mesh(new THREE.CylinderGeometry(ir * 0.65, ir, 46, 28), islandSandMat);
+    mound.position.set(ix, iy, iz);
+    group.add(mound);
+
+    for (let k = 0; k < 22; k++) {
+      const ang = (k / 22) * Math.PI * 2 + ir * 0.01;
+      const dist = ir * (0.28 + (k % 3) * 0.14);
+      const px = ix + Math.cos(ang) * dist;
+      const pz = iz + Math.sin(ang) * dist;
+      // Keep palm trees well clear of track roadbed
+      const closeToRoad = [0.02, 0.08, 0.52, 0.57, 0.92, 0.98].some((tu) => {
+        const tf = trk.fr(tu);
+        return (tf.pos.x - px) ** 2 + (tf.pos.z - pz) ** 2 < (trk.hw + 48) ** 2;
+      });
+      if (closeToRoad) continue;
+      palmPositions.push({
+        x: px,
+        y: iy + 20,
+        z: pz,
+        h: 44 + (k % 4) * 14,
+        lean: ((k % 5) - 2) * 0.09,
+        rot: k * 1.1
+      });
+    }
+  }
+
+  if (palmPositions.length > 0) {
+    const trunkMesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.9, 1.9, 1, 7),
+      new THREE.MeshStandardMaterial({ color: 0x4b355c, roughness: 0.8 }),
+      palmPositions.length
+    );
+    const leavesPerPalm = 8;
+    const leafMesh = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1.8, 25, 4, 1),
+      new THREE.MeshStandardMaterial({ color: 0x36f5d8, emissive: 0x107a72, emissiveIntensity: 0.65, roughness: 0.45, side: THREE.DoubleSide, flatShading: true }),
+      palmPositions.length * leavesPerPalm
+    );
+    const upVec = new THREE.Vector3(0, 1, 0);
+    palmPositions.forEach((p, i) => {
+      _q.setFromEuler(_euler.set(p.lean, p.rot, p.lean * 0.5));
+      _sc.set(1, p.h, 1);
+      _m4.compose(new THREE.Vector3(p.x, p.y + p.h * 0.5, p.z), _q, _sc);
+      trunkMesh.setMatrixAt(i, _m4);
+
+      const top = new THREE.Vector3(p.x + p.lean * p.h * 0.35, p.y + p.h * 0.96, p.z);
+      for (let k = 0; k < leavesPerPalm; k++) {
+        const ang = (k / leavesPerPalm) * Math.PI * 2 + p.rot;
+        const dir = new THREE.Vector3(Math.cos(ang), 0.14 + (k % 2) * 0.32, Math.sin(ang)).normalize();
+        _q.setFromUnitVectors(upVec, dir);
+        _m4.compose(top.clone().addScaledVector(dir, 10), _q, _sc.set(1, 0.9, 1));
+        leafMesh.setMatrixAt(i * leavesPerPalm + k, _m4);
+      }
+    });
+    trunkMesh.instanceMatrix.needsUpdate = true;
+    leafMesh.instanceMatrix.needsUpdate = true;
+    trunkMesh.computeBoundingSphere();
+    leafMesh.computeBoundingSphere();
+    group.add(trunkMesh, leafMesh);
+  }
+
+  // 5. Bioluminescent Coral Spires & Kelp Flanking Both Underwater Tunnels
+  const coralList: { pos: THREE.Vector3; h: number; r: number; hue: number }[] = [];
+  const kelpList: { pos: THREE.Vector3; h: number; phase: number }[] = [];
+  const tunnelBands: [number, number][] = [
+    [0.215, 0.445],
+    [0.705, 0.89]
+  ];
+  for (const [uA, uB] of tunnelBands) {
+    for (let i = 0; i < 48; i++) {
+      const u = uA + (uB - uA) * (i / 48);
+      const f = trk.fr(u);
+      const side = i % 2 === 0 ? 1 : -1;
+      const lat = trk.hw + 42 + (i % 5) * 44;
+      const p = f.pos.clone().addScaledVector(f.s, side * lat);
+      coralList.push({
+        pos: new THREE.Vector3(p.x, SEABED_Y, p.z),
+        h: 36 + (i % 6) * 22,
+        r: 12 + (i % 4) * 5,
+        hue: i % 3
+      });
+      kelpList.push({
+        pos: new THREE.Vector3(p.x + (i % 3 - 1) * 18, SEABED_Y, p.z + ((i % 2) - 0.5) * 18),
+        h: 72 + (i % 5) * 24,
+        phase: i * 0.7
+      });
+    }
+  }
+
+  const coralMesh = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(1, 1, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x268599, emissiveIntensity: 0.65, roughness: 0.4, flatShading: true }),
+    coralList.length
+  );
+  const coralColors = [new THREE.Color(0x36f5d8), new THREE.Color(0xff77c8), new THREE.Color(0xf5c451)];
+  coralList.forEach((c, i) => {
+    _q.setFromEuler(_euler.set(0, i * 0.8, 0));
+    _sc.set(c.r, c.h, c.r);
+    _m4.compose(new THREE.Vector3(c.pos.x, SEABED_Y + c.h * 0.48, c.pos.z), _q, _sc);
+    coralMesh.setMatrixAt(i, _m4);
+    coralMesh.setColorAt(i, coralColors[c.hue]);
+  });
+  coralMesh.instanceMatrix.needsUpdate = true;
+  if (coralMesh.instanceColor) coralMesh.instanceColor.needsUpdate = true;
+  coralMesh.computeBoundingSphere();
+  group.add(coralMesh);
+
+  const kelpMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(3.2, 1, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0x1ee8b8, emissive: 0x0b5e54, emissiveIntensity: 0.45, roughness: 0.6 }),
+    kelpList.length
+  );
+  kelpMesh.frustumCulled = false;
+  group.add(kelpMesh);
+
+  // Helper returning safe ocean-wildlife anchor beside/above a tunnel coordinate (always submerged under OCEAN_Y)
+  const sampleTunnelWildlifeAnchor = (u: number, side: number, latDist: number, aboveDeck: number) => {
+    const f = trk.fr(u);
+    const p = f.pos.clone().addScaledVector(f.s, side * latDist);
+    p.y = Math.min(OCEAN_Y - 24, Math.max(SEABED_Y + 34, f.pos.y + aboveDeck));
+    return { p, t: f.t.clone(), s: f.s.clone() };
+  };
+
+  // 6. Animated Swimming Marine Wildlife #1: 14 Bioluminescent Manta Rays
+  interface MantaActor {
+    root: THREE.Group;
+    wingL: THREE.Mesh;
+    wingR: THREE.Mesh;
+    uCenter: number;
+    uSpan: number;
+    side: number;
+    latBase: number;
+    yOff: number;
+    speed: number;
+    phase: number;
+  }
+  const mantas: MantaActor[] = [];
+  const mantaBodyMat = new THREE.MeshStandardMaterial({
+    color: 0x103c68,
+    emissive: 0x1ad8e8,
+    emissiveIntensity: 0.55,
+    metalness: 0.45,
+    roughness: 0.28
+  });
+  const mantaTrimMat = new THREE.MeshBasicMaterial({ color: 0x6efbff });
+  const wingShapeL = new THREE.Shape();
+  wingShapeL.moveTo(0, 5.5);
+  wingShapeL.lineTo(-14, -1.5);
+  wingShapeL.lineTo(-9, -6.5);
+  wingShapeL.lineTo(0, -4.0);
+  wingShapeL.closePath();
+  const wingGeoL = new THREE.ExtrudeGeometry(wingShapeL, { depth: 0.55, bevelEnabled: false });
+  wingGeoL.rotateX(Math.PI / 2);
+
+  const wingShapeR = new THREE.Shape();
+  wingShapeR.moveTo(0, 5.5);
+  wingShapeR.lineTo(14, -1.5);
+  wingShapeR.lineTo(9, -6.5);
+  wingShapeR.lineTo(0, -4.0);
+  wingShapeR.closePath();
+  const wingGeoR = new THREE.ExtrudeGeometry(wingShapeR, { depth: 0.55, bevelEnabled: false });
+  wingGeoR.rotateX(Math.PI / 2);
+
+  for (let i = 0; i < 14; i++) {
+    const band = i < 7 ? tunnelBands[0] : tunnelBands[1];
+    const uCenter = band[0] + (band[1] - band[0]) * ((i % 7 + 0.5) / 7);
+    const root = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.ConeGeometry(2.6, 13, 6), mantaBodyMat);
+    core.rotation.x = Math.PI / 2;
+    core.scale.set(1.2, 1.0, 0.45);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.45, 11, 5), mantaTrimMat);
+    tail.rotation.x = -Math.PI / 2;
+    tail.position.z = -9.5;
+    const wingL = new THREE.Mesh(wingGeoL, mantaBodyMat);
+    const wingR = new THREE.Mesh(wingGeoR, mantaBodyMat);
+    root.add(core, tail, wingL, wingR);
+    root.scale.setScalar(1.3 + (i % 3) * 0.35);
+    group.add(root);
+
+    const side = i % 2 === 0 ? 1 : -1;
+    const overRoof = i % 3 === 0;
+    mantas.push({
+      root,
+      wingL,
+      wingR,
+      uCenter,
+      uSpan: 0.032,
+      side,
+      latBase: overRoof ? (i % 2 === 0 ? 28 : -28) : trk.hw + 62 + (i % 4) * 32,
+      yOff: overRoof ? 68 : 26 + (i % 3) * 14,
+      speed: 0.32 + (i % 4) * 0.08,
+      phase: i * 1.4
+    });
+  }
+
+  // 7. Animated Swimming Marine Wildlife #2: 220 Neon Reef Fish (InstancedMesh)
+  const fishCount = 220;
+  const fishGeo = new THREE.ConeGeometry(1.1, 4.4, 4);
+  fishGeo.rotateX(Math.PI / 2);
+  const fishMesh = new THREE.InstancedMesh(
+    fishGeo,
+    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x1a9cb8, emissiveIntensity: 0.65, roughness: 0.25, metalness: 0.35 }),
+    fishCount
+  );
+  fishMesh.frustumCulled = false;
+  const fishPalette = [new THREE.Color(0x52f7e4), new THREE.Color(0xf5c451), new THREE.Color(0xff84c8), new THREE.Color(0x7fe8ff)];
+  interface FishData {
+    uBase: number;
+    bandIdx: number;
+    side: number;
+    latBase: number;
+    yOff: number;
+    orbitR: number;
+    speed: number;
+    phase: number;
+    scale: number;
+  }
+  const fishList: FishData[] = [];
+  for (let i = 0; i < fishCount; i++) {
+    const bandIdx = i % 2;
+    const band = tunnelBands[bandIdx];
+    const uBase = band[0] + (band[1] - band[0]) * (((i * 0.6180339) % 1));
+    const overRoof = i % 5 === 0;
+    fishList.push({
+      uBase,
+      bandIdx,
+      side: i % 2 === 0 ? 1 : -1,
+      latBase: overRoof ? ((i % 3) - 1) * 38 : trk.hw + 44 + (i % 6) * 26,
+      yOff: overRoof ? 66 + (i % 3) * 8 : 16 + (i % 5) * 10,
+      orbitR: 12 + (i % 4) * 6,
+      speed: 0.75 + (i % 5) * 0.18,
+      phase: i * 0.55,
+      scale: 0.8 + (i % 4) * 0.25
+    });
+    fishMesh.setColorAt(i, fishPalette[i % fishPalette.length]);
+  }
+  if (fishMesh.instanceColor) fishMesh.instanceColor.needsUpdate = true;
+  group.add(fishMesh);
+
+  // 8. Animated Swimming Marine Wildlife #3: 28 Bioluminescent Deep-Sea Jellyfish
+  const jellyCount = 28;
+  const jellyBellMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(4.2, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    new THREE.MeshBasicMaterial({ color: 0xff94f0, transparent: true, opacity: 0.74, blending: THREE.AdditiveBlending, depthWrite: false }),
+    jellyCount
+  );
+  const jellyCoreMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.6, 2.2, 11, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x52f7e4, transparent: true, opacity: 0.56, blending: THREE.AdditiveBlending, depthWrite: false }),
+    jellyCount
+  );
+  jellyBellMesh.frustumCulled = false;
+  jellyCoreMesh.frustumCulled = false;
+  const jellyAnchors: { x: number; y: number; z: number; phase: number; speed: number }[] = [];
+  for (let i = 0; i < jellyCount; i++) {
+    const band = tunnelBands[i % 2];
+    const u = band[0] + (band[1] - band[0]) * ((i + 0.4) / jellyCount);
+    const anc = sampleTunnelWildlifeAnchor(u, i % 2 === 0 ? 1 : -1, trk.hw + 55 + (i % 4) * 35, 22 + (i % 4) * 14);
+    jellyAnchors.push({ x: anc.p.x, y: anc.p.y, z: anc.p.z, phase: i * 0.9, speed: 1.2 + (i % 3) * 0.35 });
+  }
+  group.add(jellyBellMesh, jellyCoreMesh);
+
+  // 9. Animated Swimming Marine Wildlife #4: 2 Giant Cosmic Sea-Leviathans (Whales)
+  interface WhaleActor {
+    segs: THREE.Group[];
+    uBase: number;
+    uAmp: number;
+    side: number;
+    latBase: number;
+    yOff: number;
+    speed: number;
+    phase: number;
+  }
+  const whales: WhaleActor[] = [];
+  const whaleSkinMat = new THREE.MeshStandardMaterial({
+    color: 0x163868,
+    emissive: 0x2688c8,
+    emissiveIntensity: 0.42,
+    metalness: 0.4,
+    roughness: 0.3
+  });
+  const whaleSpotMat = new THREE.MeshBasicMaterial({ color: 0x6efbff });
+
+  for (let w = 0; w < 2; w++) {
+    const segs: THREE.Group[] = [];
+    const segCount = 10;
+    for (let s = 0; s < segCount; s++) {
+      const seg = new THREE.Group();
+      const tNorm = s / (segCount - 1);
+      const rad = s === 0 ? 9.5 : Math.max(2.2, 11.5 * Math.sin(Math.PI * (0.14 + 0.76 * (1 - tNorm))));
+      const body = new THREE.Mesh(new THREE.SphereGeometry(rad, 14, 12), whaleSkinMat);
+      body.scale.set(0.85, 0.78, 1.35);
+      seg.add(body);
+      if (s < segCount - 2) {
+        for (const ls of [-1, 1]) {
+          const spot = new THREE.Mesh(new THREE.SphereGeometry(rad * 0.18, 6, 6), whaleSpotMat);
+          spot.position.set(ls * rad * 0.78, rad * 0.15, 0);
+          seg.add(spot);
+        }
+      }
+      if (s === 2) {
+        // Pectoral fins
+        for (const ls of [-1, 1]) {
+          const fin = new THREE.Mesh(new THREE.BoxGeometry(24, 1.2, 7.5), whaleSkinMat);
+          fin.position.set(ls * 15, -2, -2);
+          fin.rotation.y = ls * -0.45;
+          fin.rotation.z = ls * -0.22;
+          seg.add(fin);
+        }
+      }
+      if (s === segCount - 1) {
+        // Tail fluke
+        const fluke = new THREE.Mesh(new THREE.BoxGeometry(22, 1.1, 8.5), whaleSpotMat);
+        fluke.position.z = -5;
+        seg.add(fluke);
+      }
+      group.add(seg);
+      segs.push(seg);
+    }
+    whales.push({
+      segs,
+      uBase: w === 0 ? 0.32 : 0.79,
+      uAmp: 0.08,
+      side: w === 0 ? -1 : 1,
+      latBase: trk.hw + 125,
+      yOff: 46,
+      speed: 0.18 + w * 0.04,
+      phase: w * 2.1
+    });
+  }
+
+  // 10. Rising Bubble Columns beside both underwater tunnels
+  const bubbleCount = 150;
+  const bubbleMesh = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1.15, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xb8ffff, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false }),
+    bubbleCount
+  );
+  bubbleMesh.frustumCulled = false;
+  const bubbles: { x: number; z: number; minY: number; maxY: number; speed: number; phase: number; scale: number }[] = [];
+  for (let i = 0; i < bubbleCount; i++) {
+    const band = tunnelBands[i % 2];
+    const u = band[0] + (band[1] - band[0]) * (Math.floor(i / 6) / (bubbleCount / 6));
+    const f = trk.fr(u);
+    const side = i % 2 === 0 ? 1 : -1;
+    const p = f.pos.clone().addScaledVector(f.s, side * (trk.hw + 32 + (i % 4) * 20));
+    bubbles.push({
+      x: p.x + ((i % 3) - 1) * 6,
+      z: p.z + ((i % 5) - 2) * 5,
+      minY: SEABED_Y + 8,
+      maxY: OCEAN_Y - 6,
+      speed: 18 + (i % 5) * 6,
+      phase: (i * 0.37) % 1,
+      scale: 0.7 + (i % 4) * 0.35
+    });
+  }
+  group.add(bubbleMesh);
+
+  // Trackside scenic sprint arches outside tunnels
+  arch(trk, 0.11, 'CORAL HORIZON', '珊瑚海湾', '#36f5d8', group);
+  arch(trk, 0.59, 'ATOLL LEAP', '星海飞跃', '#f5c451', group);
+  tracksideSign(trk, 0.045, 'SPACE BEACH SPRINT', '#f5c451', 26, group);
+  tracksideSign(trk, 0.495, 'ATOL BAY JUMP', '#36f5d8', 26, group);
+
+  const _wPos = new THREE.Vector3();
+  const _wTarget = new THREE.Vector3();
+
+  world.update = (dt, now) => {
+    const t = now * 0.001;
+    oceanTex.offset.y -= dt * 0.008;
+    oceanTex.offset.x += dt * 0.003;
+    planet.rotation.y += dt * 0.015;
+
+    // Gentle kelp sway
+    for (let i = 0; i < kelpList.length; i++) {
+      const k = kelpList[i];
+      _q.setFromEuler(_euler.set(Math.sin(t * 1.1 + k.phase) * 0.14, k.phase, Math.cos(t * 0.9 + k.phase) * 0.12));
+      _sc.set(1, k.h, 1);
+      _m4.compose(_wPos.set(k.pos.x, SEABED_Y + k.h * 0.45, k.pos.z), _q, _sc);
+      kelpMesh.setMatrixAt(i, _m4);
+    }
+    kelpMesh.instanceMatrix.needsUpdate = true;
+
+    // Manta rays gliding & flapping wings
+    for (const m of mantas) {
+      const mt = t * m.speed + m.phase;
+      const u = clampTrackU(trk, m.uCenter + Math.sin(mt) * m.uSpan);
+      const uNext = clampTrackU(trk, m.uCenter + Math.sin(mt + 0.04) * m.uSpan);
+      const f = trk.fr(u);
+      const fn = trk.fr(uNext);
+      const lat = m.side * (m.latBase + Math.cos(mt * 1.5) * 14);
+      const y = Math.min(OCEAN_Y - 22, Math.max(SEABED_Y + 30, f.pos.y + m.yOff + Math.sin(mt * 2.1) * 10));
+      m.root.position.set(f.pos.x + f.s.x * lat, y, f.pos.z + f.s.z * lat);
+      const latNext = m.side * (m.latBase + Math.cos((mt + 0.04) * 1.5) * 14);
+      const yNext = Math.min(OCEAN_Y - 22, Math.max(SEABED_Y + 30, fn.pos.y + m.yOff + Math.sin((mt + 0.04) * 2.1) * 10));
+      _wTarget.set(fn.pos.x + fn.s.x * latNext, yNext, fn.pos.z + fn.s.z * latNext);
+      m.root.lookAt(_wTarget);
+      const flap = Math.sin(t * 2.8 + m.phase) * 0.34;
+      m.wingL.rotation.z = flap;
+      m.wingR.rotation.z = -flap;
+    }
+
+    // Orbiting fish schools
+    for (let i = 0; i < fishList.length; i++) {
+      const fs = fishList[i];
+      const ang = t * fs.speed + fs.phase;
+      const u = clampTrackU(trk, fs.uBase + Math.sin(ang * 0.35) * 0.018);
+      const f = trk.fr(u);
+      const lat = fs.side * (fs.latBase + Math.cos(ang) * fs.orbitR);
+      const px = f.pos.x + f.s.x * lat + Math.sin(ang) * 4;
+      const pz = f.pos.z + f.s.z * lat + Math.cos(ang) * 4;
+      const py = Math.min(OCEAN_Y - 14, Math.max(SEABED_Y + 18, f.pos.y + fs.yOff + Math.sin(ang * 1.7) * 8));
+      const yaw = Math.atan2(f.t.x, f.t.z) * (Math.cos(ang * 0.35) >= 0 ? 1 : 1) + Math.sin(ang) * 0.35;
+      _q.setFromEuler(_euler.set(0, yaw, 0));
+      _sc.setScalar(fs.scale);
+      _m4.compose(_wPos.set(px, py, pz), _q, _sc);
+      fishMesh.setMatrixAt(i, _m4);
+    }
+    fishMesh.instanceMatrix.needsUpdate = true;
+
+    // Pulsing jellyfish
+    for (let i = 0; i < jellyAnchors.length; i++) {
+      const ja = jellyAnchors[i];
+      const bob = Math.sin(t * ja.speed + ja.phase);
+      const pulse = 0.86 + 0.24 * Math.sin(t * ja.speed * 1.6 + ja.phase);
+      _q.setFromEuler(_euler.set(0, t * 0.3 + ja.phase, 0));
+      _sc.set(pulse, 1.15 - (pulse - 0.86) * 0.4, pulse);
+      _wPos.set(ja.x, Math.min(OCEAN_Y - 18, ja.y + bob * 10), ja.z);
+      _m4.compose(_wPos, _q, _sc);
+      jellyBellMesh.setMatrixAt(i, _m4);
+      _wPos.y -= 5.2;
+      _sc.set(0.85, 1, 0.85);
+      _m4.compose(_wPos, _q, _sc);
+      jellyCoreMesh.setMatrixAt(i, _m4);
+    }
+    jellyBellMesh.instanceMatrix.needsUpdate = true;
+    jellyCoreMesh.instanceMatrix.needsUpdate = true;
+
+    // Giant Cosmic Whales gliding along the glass tunnels
+    for (const wh of whales) {
+      const wt = t * wh.speed + wh.phase;
+      for (let s = 0; s < wh.segs.length; s++) {
+        const st = wt - s * 0.14;
+        const u = clampTrackU(trk, wh.uBase + Math.sin(st) * wh.uAmp);
+        const uNext = clampTrackU(trk, wh.uBase + Math.sin(st + 0.03) * wh.uAmp);
+        const f = trk.fr(u);
+        const fn = trk.fr(uNext);
+        const lat = wh.side * (wh.latBase + Math.cos(st * 1.4) * 24);
+        const y = Math.min(OCEAN_Y - 30, Math.max(SEABED_Y + 42, f.pos.y + wh.yOff + Math.sin(st * 1.8) * 14));
+        const seg = wh.segs[s];
+        seg.position.set(f.pos.x + f.s.x * lat, y, f.pos.z + f.s.z * lat);
+        _wTarget.set(
+          fn.pos.x + fn.s.x * wh.side * (wh.latBase + Math.cos((st + 0.03) * 1.4) * 24),
+          Math.min(OCEAN_Y - 30, Math.max(SEABED_Y + 42, fn.pos.y + wh.yOff + Math.sin((st + 0.03) * 1.8) * 14)),
+          fn.pos.z + fn.s.z * wh.side * (wh.latBase + Math.cos((st + 0.03) * 1.4) * 24)
+        );
+        seg.lookAt(_wTarget);
+      }
+    }
+
+    // Rising hydrothermal bubble columns
+    for (let i = 0; i < bubbles.length; i++) {
+      const b = bubbles[i];
+      const frac = ((t * (b.speed / (b.maxY - b.minY)) + b.phase) % 1 + 1) % 1;
+      const by = b.minY + frac * (b.maxY - b.minY);
+      _q.identity();
+      _sc.setScalar(b.scale);
+      _m4.compose(_wPos.set(b.x + Math.sin(t * 2 + i) * 2.2, by, b.z + Math.cos(t * 2 + i) * 2.2), _q, _sc);
+      bubbleMesh.setMatrixAt(i, _m4);
+    }
+    bubbleMesh.instanceMatrix.needsUpdate = true;
+  };
+}
+
 function buildSpecials(def: LevelDef, trk: TrackData, group: THREE.Group): void {
   const accent = new THREE.MeshBasicMaterial({ color: def.theme.accent, toneMapped: false });
   const accent2 = new THREE.MeshBasicMaterial({ color: def.theme.secondary, toneMapped: false });
@@ -872,13 +1621,13 @@ function buildSpecials(def: LevelDef, trk: TrackData, group: THREE.Group): void 
   }
 
   function edgeRails(spec: { at: number; w: number }, radius: number) {
-    const samples = sampleRun(spec, 84);
+    const samples = sampleRun(spec, 96);
     for (const [side, mat] of [[-1, accent], [1, accent2]] as [number, THREE.MeshBasicMaterial][]) {
       const pts = samples.map((f) =>
-        f.pos.clone().addScaledVector(f.s, side * (f.width / 2)).addScaledVector(f.up, 1.4)
+        f.pos.clone().addScaledVector(f.s, side * (f.width + 0.9)).addScaledVector(f.up, 2.2)
       );
       const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-      group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 180, radius, 6, false), mat));
+      group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 220, radius, 6, false), mat));
     }
     return samples;
   }
@@ -892,67 +1641,114 @@ function buildSpecials(def: LevelDef, trk: TrackData, group: THREE.Group): void 
       strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), f.up.clone().negate());
       group.add(strut);
     }
-    tracksideSign(trk, (spec.at - 0.022 + 1) % 1, 'FULL LOOP', '#ffd700', 27, group);
+    tracksideSign(trk, clampTrackU(trk, spec.at - 0.022), 'FULL LOOP', '#ffd700', 27, group);
   }
 
   for (const spec of trk.rolls) {
-    edgeRails(spec, 0.85);
-    const samples = sampleRun(spec, 110);
-    const pts = samples.map((f) => f.pos);
-    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    const radius = trk.hw * trk.widthAt(spec.at + spec.w * 0.5) * 1.3;
-    group.add(
-      new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 200, radius, 16, false),
-        new THREE.MeshBasicMaterial({ color: def.theme.accent, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })
-      )
-    );
+    const samples = edgeRails(spec, 0.95);
     const hoopMat = new THREE.MeshBasicMaterial({ color: def.theme.secondary, toneMapped: false });
-    const hoopGeo = new THREE.TorusGeometry(radius, 1.5, 6, 26);
-    for (let k = 4; k < samples.length - 4; k += 9) {
+    // Open underside cradle C-arcs strictly beneath the twisted deck so the sky and car remain 100% unobstructed
+    for (let k = 6; k < samples.length - 6; k += 9) {
       const f = samples[k];
-      const hoop = new THREE.Mesh(hoopGeo, hoopMat);
-      hoop.position.copy(f.pos);
-      hoop.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
-      group.add(hoop);
+      const cradleR = f.width + 10;
+      const cradle = new THREE.Mesh(new THREE.TorusGeometry(cradleR, 1.35, 6, 18, Math.PI * 0.92), steel);
+      cradle.position.copy(f.pos).addScaledVector(f.up, -8);
+      cradle.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
+      cradle.rotateZ(Math.PI + 0.04 * Math.PI);
+      group.add(cradle);
+
+      const beaconL = new THREE.Mesh(new THREE.BoxGeometry(1.4, 4.2, 1.4), hoopMat);
+      beaconL.position.copy(f.pos).addScaledVector(f.s, -(f.width + 2.4)).addScaledVector(f.up, 1.2);
+      beaconL.quaternion.copy(cradle.quaternion);
+      group.add(beaconL);
+
+      const beaconR = new THREE.Mesh(new THREE.BoxGeometry(1.4, 4.2, 1.4), accent);
+      beaconR.position.copy(f.pos).addScaledVector(f.s, f.width + 2.4).addScaledVector(f.up, 1.2);
+      beaconR.quaternion.copy(cradle.quaternion);
+      group.add(beaconR);
     }
-    tracksideSign(trk, (spec.at - 0.02 + 1) % 1, 'CORKSCREW', '#00f0ff', 26, group);
+    tracksideSign(trk, clampTrackU(trk, spec.at - 0.02), 'CORKSCREW', '#00f0ff', 26, group);
   }
 
   for (const spec of def.features.filter((f) => f.type === 'tunnel')) {
     const from = spec.at;
     const to = spec.at + spec.w;
     const h = spec.height ?? 30;
-    const shellMat = new THREE.MeshBasicMaterial({ color: 0x0a1024, side: THREE.DoubleSide });
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, trk.hw * 2 + 14, h, from, to, 30, true), shellMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, -(trk.hw + 4), h, from, to, true), shellMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, trk.hw + 4, h, from, to, true), shellMat));
 
-    const steps = Math.max(10, Math.round(trk.steps * spec.w));
-    for (let k = 0; k <= steps; k += 7) {
-      const u = from + (to - from) * (k / steps);
-      const f = trk.fr(u);
-      const g = new THREE.Group();
-      g.position.copy(f.pos);
-      g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
-      const span = f.width / 2 + 4;
-      for (const side of [-1, 1]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(2.6, h, 2.6), steel);
-        leg.position.set(side * span, h / 2, 0);
-        g.add(leg);
-        const strip = new THREE.Mesh(new THREE.BoxGeometry(0.5, h * 0.8, 0.5), glow);
-        strip.position.set(side * (span - 1.6), h * 0.45, 0);
-        g.add(strip);
+    if (spec.underwater) {
+      // Transparent panoramic underwater glass tunnel looking directly out into ocean wildlife
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0x52f7e4,
+        emissive: 0x09425e,
+        emissiveIntensity: 0.22,
+        metalness: 0.14,
+        roughness: 0.08,
+        clearcoat: 1.0,
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+      const glassDome = new THREE.Mesh(underwaterDomeGeometry(trk, from, to, h + 10), glassMat);
+      glassDome.renderOrder = 3;
+      group.add(glassDome);
+
+      // Glowing longitudinal glass structural spines
+      group.add(new THREE.Mesh(ribbonGeometry(trk, 0, 2.2, h + 10, from, to, 40, true), glow));
+      group.add(new THREE.Mesh(ribbonGeometry(trk, -(trk.hw + 2.5), 1.8, (h + 10) * 0.56, from, to, 40, true), glow));
+      group.add(new THREE.Mesh(ribbonGeometry(trk, trk.hw + 2.5, 1.8, (h + 10) * 0.56, from, to, 40, true), glow));
+
+      const steps = Math.max(12, Math.round(trk.steps * spec.w));
+      const ribGeo = new THREE.TorusGeometry(trk.hw + 5.2, 1.25, 8, 28, Math.PI);
+      const spineLightGeo = new THREE.TorusGeometry(trk.hw + 4.3, 0.36, 6, 28, Math.PI);
+      const yScale = (h + 10) / (trk.hw + 5.2);
+
+      for (let k = 0; k <= steps; k += 8) {
+        const u = clampTrackU(trk, from + (to - from) * (k / steps));
+        const f = trk.fr(u);
+        const ribGroup = new THREE.Group();
+        ribGroup.position.copy(f.pos);
+        ribGroup.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
+        ribGroup.scale.set(1, yScale, 1);
+
+        const ribMesh = new THREE.Mesh(ribGeo, steel);
+        const ribLight = new THREE.Mesh(spineLightGeo, k % 16 === 0 ? accent2 : accent);
+        ribGroup.add(ribMesh, ribLight);
+        group.add(ribGroup);
       }
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(span * 2 + 2.6, 2.6, 2.6), steel);
-      beam.position.set(0, h, 0);
-      g.add(beam);
-      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(span * 1.6, 0.4, 1.6), accent);
-      ceiling.position.set(0, h - 2.2, 0);
-      g.add(ceiling);
-      group.add(g);
+      tracksideSign(trk, clampTrackU(trk, from - 0.015), 'UNDERWATER TUNNEL', '#36f5d8', 26, group);
+    } else {
+      const shellMat = new THREE.MeshBasicMaterial({ color: 0x0a1024, side: THREE.DoubleSide });
+      group.add(new THREE.Mesh(ribbonGeometry(trk, 0, trk.hw * 2 + 14, h, from, to, 30, true), shellMat));
+      group.add(new THREE.Mesh(wallGeometry(trk, -(trk.hw + 4), h, from, to, true), shellMat));
+      group.add(new THREE.Mesh(wallGeometry(trk, trk.hw + 4, h, from, to, true), shellMat));
+
+      const steps = Math.max(10, Math.round(trk.steps * spec.w));
+      for (let k = 0; k <= steps; k += 7) {
+        const u = from + (to - from) * (k / steps);
+        const f = trk.fr(u);
+        const g = new THREE.Group();
+        g.position.copy(f.pos);
+        g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.s, f.up, f.t));
+        const span = f.width / 2 + 4;
+        for (const side of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(2.6, h, 2.6), steel);
+          leg.position.set(side * span, h / 2, 0);
+          g.add(leg);
+          const strip = new THREE.Mesh(new THREE.BoxGeometry(0.5, h * 0.8, 0.5), glow);
+          strip.position.set(side * (span - 1.6), h * 0.45, 0);
+          g.add(strip);
+        }
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(span * 2 + 2.6, 2.6, 2.6), steel);
+        beam.position.set(0, h, 0);
+        g.add(beam);
+        const ceiling = new THREE.Mesh(new THREE.BoxGeometry(span * 1.6, 0.4, 1.6), accent);
+        ceiling.position.set(0, h - 2.2, 0);
+        g.add(ceiling);
+        group.add(g);
+      }
+      tracksideSign(trk, clampTrackU(trk, from - 0.02), 'TUNNEL', '#8fe9ff', 25, group);
     }
-    tracksideSign(trk, (from - 0.02 + 1) % 1, 'TUNNEL', '#8fe9ff', 25, group);
   }
 }
 
@@ -1011,9 +1807,10 @@ function buildDressing(def: LevelDef, trk: TrackData, group: THREE.Group): void 
     const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 3.2, 7), steel, spots.length);
     const bands = new THREE.InstancedMesh(new THREE.CylinderGeometry(4.9, 4.9, 1.3, 10), basicHot(B, 1.8), spots.length * 2);
     const q0 = new THREE.Quaternion();
+    const groundFloorY = def.id === 'space_beach' ? -220 : -320;
     spots.forEach((u, i) => {
       const f = trk.fr(u);
-      const H = 320 + Math.max(0, f.pos.y);
+      const H = Math.max(14, f.pos.y - 7 - groundFloorY);
       _m4.compose(new THREE.Vector3(f.pos.x, f.pos.y - 7 - H / 2, f.pos.z), q0, _sc.set(1, H, 1));
       pylons.setMatrixAt(i, _m4);
       _m4.compose(f.pos.clone().addScaledVector(f.up, -8.6), faceQ(f), _sc.set(f.width * 0.72, 1, 1));
@@ -1093,6 +1890,9 @@ function buildObstacles(def: LevelDef, trk: TrackData, group: THREE.Group): void
   const asteroidMat = new THREE.MeshStandardMaterial({ color: 0x565073, roughness: 0.78, metalness: 0.28, flatShading: true });
   const warnMat = new THREE.MeshBasicMaterial({ color: 0xffc14d, transparent: true, opacity: 0.5, side: THREE.DoubleSide, toneMapped: false, depthWrite: false });
 
+  const warnGeo = new THREE.RingGeometry(5.6, 6.6, 28);
+  warnGeo.rotateX(-Math.PI / 2);
+
   let packed = 0;
   for (let i = 0; i < def.obstacles * 20 && packed < def.obstacles; i++) {
     const u = 0.08 + ((i * 0.1379 + 0.021) % 0.855);
@@ -1104,14 +1904,18 @@ function buildObstacles(def: LevelDef, trk: TrackData, group: THREE.Group): void
 
     const off = (packed % 2 ? 1 : -1) * trk.hw * (0.3 + (packed % 3) * 0.13);
     const f = trk.fr(u);
+    const qSurface = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(f.s.clone().negate(), f.up, f.t)
+    );
     const base = f.pos.clone().addScaledVector(f.s, off);
     let mesh: THREE.Mesh;
     let height: number;
-    if (def.id === 'beach') {
+    if (def.id === 'beach' || def.id === 'space_beach') {
       height = 13;
       mesh = new THREE.Mesh(new THREE.ConeGeometry(4.6, height, 5), rockMat);
       mesh.position.copy(base).addScaledVector(f.up, height / 2);
-      mesh.rotation.y = Math.random() * 3;
+      mesh.quaternion.copy(qSurface);
+      mesh.rotateY(Math.random() * 3);
     } else if (def.id === 'space') {
       height = 10;
       mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(5, 0), asteroidMat);
@@ -1121,6 +1925,7 @@ function buildObstacles(def: LevelDef, trk: TrackData, group: THREE.Group): void
       height = 9;
       mesh = new THREE.Mesh(new THREE.BoxGeometry(5, height, 5), neonBody);
       mesh.position.copy(base).addScaledVector(f.up, height / 2);
+      mesh.quaternion.copy(qSurface);
       const strip = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.1, 5.2), glowMat);
       strip.position.y = -height / 2 + 1.5;
       mesh.add(strip);
@@ -1130,15 +1935,16 @@ function buildObstacles(def: LevelDef, trk: TrackData, group: THREE.Group): void
     }
     group.add(mesh);
 
-    const warn = new THREE.Mesh(new THREE.RingGeometry(5.6, 6.6, 28), warnMat);
-    warn.rotation.x = -Math.PI / 2;
-    warn.position.copy(base).addScaledVector(f.up, 0.32);
+    const warn = new THREE.Mesh(warnGeo, warnMat);
+    warn.quaternion.copy(qSurface);
+    warn.position.copy(base).addScaledVector(f.up, 0.35);
     group.add(warn);
 
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.55, 0.9, 28, 6, 1, true),
       new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.45, toneMapped: false, depthWrite: false, side: THREE.DoubleSide })
     );
+    beam.quaternion.copy(qSurface);
     beam.position.copy(base).addScaledVector(f.up, 16);
     group.add(beam);
 
@@ -1194,26 +2000,34 @@ export function buildWorld(
 
   const roadTex = makeRoadTexture(def.road);
   roadTex.wrapT = THREE.RepeatWrapping;
-  const roadMat = new THREE.MeshBasicMaterial({ map: roadTex, side: THREE.DoubleSide, toneMapped: false });
+  const roadMat = new THREE.MeshStandardMaterial({
+    map: roadTex,
+    emissiveMap: roadTex,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.72,
+    roughness: 0.24,
+    metalness: 0.55,
+    side: THREE.DoubleSide
+  });
 
   const kerbTex = makeKerbTexture(def.road.edge2, def.road.edge);
   kerbTex.wrapT = THREE.RepeatWrapping;
   const kerbMat = new THREE.MeshBasicMaterial({ map: kerbTex, side: THREE.DoubleSide, toneMapped: false });
 
-  const wallTex = makeWallTexture(def.road, def.id === 'neon' ? 'hex' : def.id === 'beach' ? 'bio' : 'grid');
+  const wallTex = makeWallTexture(def.road, def.id === 'neon' ? 'hex' : def.id === 'beach' || def.id === 'space_beach' ? 'bio' : 'grid');
   wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
   const wallMat = new THREE.MeshBasicMaterial({
     map: wallTex,
     transparent: true,
-    opacity: 0.42,
+    opacity: 0.24,
     side: THREE.DoubleSide,
     toneMapped: false,
     depthWrite: false
   });
 
   const deckMat = new THREE.MeshStandardMaterial({ color: 0x0b1226, metalness: 0.85, roughness: 0.42, side: THREE.DoubleSide });
-  const trimA = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.accent).multiplyScalar(2.0), toneMapped: false, side: THREE.DoubleSide });
-  const trimB = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.secondary).multiplyScalar(2.0), toneMapped: false, side: THREE.DoubleSide });
+  const trimA = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.accent).multiplyScalar(1.75), toneMapped: false, side: THREE.DoubleSide });
+  const trimB = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.secondary).multiplyScalar(1.75), toneMapped: false, side: THREE.DoubleSide });
   const underGlow = new THREE.MeshBasicMaterial({
     color: def.theme.accent,
     transparent: true,
@@ -1225,18 +2039,21 @@ export function buildWorld(
   });
 
   for (const [a, b] of ranges) {
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.02, a, b, 40, true), roadMat));
-    group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 2.2), 3.4, 0.09, a, b, 12, true), kerbMat));
-    group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 2.2, 3.4, 0.09, a, b, 12, true), kerbMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, -(hw - 0.4), 5.4, a, b, true), wallMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, hw - 0.4, 5.4, a, b, true), wallMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.04, a, b, 40, true), roadMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 1.8), 3.4, 0.11, a, b, 12, true), kerbMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 1.8, 3.4, 0.11, a, b, 12, true), kerbMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, -(hw + 0.5), 3.8, a, b, true), wallMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, hw + 0.5, 3.8, a, b, true), wallMat));
+    // Continuous glowing upper rail light strip along both barrier walls (matching sleek orbital rail ref)
+    group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw + 0.3), 1.3, 1.9, a, b, 40, true), trimA));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, hw + 0.3, 1.3, 1.9, a, b, 40, true), trimB));
 
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, -7, a, b, 40, true), deckMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, -hw, -7, a, b, true), deckMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, hw, -7, a, b, true), deckMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, -hw - 0.2, -1.1, a, b, true), trimA));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, -6.8, a, b, 40, true), deckMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, -hw, -6.8, a, b, true), deckMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, hw, -6.8, a, b, true), deckMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, -(hw + 0.2), -1.1, a, b, true), trimA));
     group.add(new THREE.Mesh(wallGeometry(trk, hw + 0.2, -1.1, a, b, true), trimB));
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 1.5, -7.4, a, b, 40, true), underGlow));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 1.5, -7.2, a, b, 40, true), underGlow));
   }
 
   const world: BuiltWorld = { group, trk, def, update: () => {} };
@@ -1244,20 +2061,26 @@ export function buildWorld(
 
   if (def.id === 'neon') buildNeonWorld(def, trk, group, world);
   else if (def.id === 'beach') buildBeachWorld(def, trk, group, world);
+  else if (def.id === 'space_beach') buildSpaceBeachWorld(def, trk, group, world);
   else buildSpaceWorld(def, trk, group, world);
 
-  const rawPads = [0.02, 0.25, 0.57, 0.78];
+  if (def.isSprint) {
+    arch(trk, 0.015, 'SPRINT START', '起点', '#36f5d8', group, true);
+    arch(trk, 0.988, 'RACE FINISH', '终点', '#f5c451', group, true);
+  }
+
+  const rawPads = def.isSprint ? [0.035, 0.26, 0.515, 0.76, 0.92] : [0.02, 0.25, 0.57, 0.78];
   for (const j of trk.elev.jumps) rawPads.push(j.at - 0.016);
   for (const L of trk.loops) rawPads.push(L.at - 0.024);
   for (const f of def.features) if (f.type === 'descent') rawPads.push(f.at + f.w * 0.62);
   trk.pads = rawPads
-    .map((p) => ((p % 1) + 1) % 1)
+    .map((p) => (def.isSprint ? Math.max(0.02, Math.min(0.95, p)) : ((p % 1) + 1) % 1))
     .filter((p) => !trk.elev.isGap(p) && !trk.inSpecial(p) && !trk.elev.jumps.some((j) => p > j.at - 0.002 && p < j.end))
     .sort((p, q) => p - q)
     .filter((p, i, arr) => i === 0 || p - arr[i - 1] > 0.032);
 
   // Extended 190m spline-aligned Hyper-Boost Lanes with animated chevron stream
-  const padTex = padTexture(def.id === 'beach' ? '#59f0d8' : def.id === 'space' ? '#c9a8ff' : '#f5c451');
+  const padTex = padTexture(def.id === 'beach' || def.id === 'space_beach' ? '#59f0d8' : def.id === 'space' ? '#c9a8ff' : '#f5c451');
   padTex.wrapS = padTex.wrapT = THREE.RepeatWrapping;
   padTex.repeat.set(1, 5);
   const boostLaneMat = new THREE.MeshBasicMaterial({

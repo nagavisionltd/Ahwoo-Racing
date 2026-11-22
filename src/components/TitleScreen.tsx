@@ -8,12 +8,12 @@ interface TitleScreenProps {
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onToggleMute }) => {
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between p-6 md:p-10 bg-gradient-to-r from-[#050712]/90 via-[#050712]/55 to-[#050712]/35">
+    <div className="fixed inset-0 z-20 flex flex-col justify-between p-5 md:p-8 bg-gradient-to-r from-[#050712]/72 via-[#050712]/24 to-transparent">
       {/* Top minimal bar: brand kicker + audio toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 text-[11px] tracking-[0.28em] text-[#f5c451]">
           <span className="inline-block w-2 h-2 bg-[#f5c451] rotate-45" />
-          <span>天际回廊 // AHWOO LUXURY GRAND PRIX</span>
+          <span>天际回廊 · AHWOO LUXURY GRAND PRIX</span>
         </div>
         <button
           type="button"
@@ -152,8 +152,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onTogg
       </div>
 
       {/* Single flat control-hint line */}
-      <div className="flex items-center justify-between border-t border-white/10 pt-3 text-[10px] tracking-[0.22em] text-[#9fb2d9]">
-        <span>WASD / ARROWS DRIVE · SPACE / C OVERDRIVE · M AUDIO · ESC PAUSE</span>
+      <div className="flex items-center justify-between border-t border-white/10 pt-2.5 text-[9px] tracking-[0.2em] text-[#9fb2d9] pr-28">
+        <span>WASD DRIVE · SPACE OVERDRIVE · R RADIO · M AUDIO · ESC PAUSE</span>
         <span className="hidden sm:inline text-[#f5c451]">PRESS ENTER TO START</span>
       </div>
     </div>

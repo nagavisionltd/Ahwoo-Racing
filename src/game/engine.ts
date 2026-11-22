@@ -4,12 +4,20 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RaceAnnouncer } from './announcer';
 import { SoundEngine } from './audio';
 import { generateRivalIdentities, getPlayerIdentity } from './rivals';
 import { setTextureMaxAnisotropy } from './textures';
 import { LEVELS } from './tracks';
-import type { GameStep, HazardAlert, HudSnapshot, StandingEntry } from './types';
-import { buildLuxuryHoverCar, frameChassis, SHIP_PROFILES, type BuiltVehicle } from './vehicles';
+import type { GameStep, HazardAlert, HudSnapshot, StandingEntry, VehicleCustomization } from './types';
+import {
+  buildLuxuryHoverCar,
+  frameChassis,
+  getDefaultCustomization,
+  getNeonPreset,
+  SHIP_PROFILES,
+  type BuiltVehicle
+} from './vehicles';
 import { WeatherSystem } from './weather';
 import { WeatherHazardManager, type HazardInteractionResult } from './weatherHazards';
 import { buildWorld, disposeGroup, type BuiltWorld } from './worlds';
@@ -118,6 +126,7 @@ interface RivalState extends BuiltVehicle {
   lap: number;
   off: number;
   baseSpeed: number;
+  prevProgress: number;
 }
 
 export interface EngineCallbacks {
@@ -125,6 +134,7 @@ export interface EngineCallbacks {
   onHudUpdate: (hud: HudSnapshot) => void;
   onShipChange: (shipId: number) => void;
   onLevelChange: (levelIdx: number, previewIdx: number) => void;
+  onCustomizationChange: (custom: VehicleCustomization) => void;
 }
 
 // Pre-allocated scratch objects for zero-GC main loop
@@ -140,6 +150,27 @@ const _vecA = new THREE.Vector3();
 const _vecB = new THREE.Vector3();
 const _vecC = new THREE.Vector3();
 const _vecNegS = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0);
+const _replayUpTarget = new THREE.Vector3(0, 1, 0);
+
+type ReplayShotKind = 'wide_crane' | 'close_quarter' | 'wide_heli' | 'close_front' | 'wide_apex';
+
+interface ReplayShotDef {
+  kind: ReplayShotKind;
+  label: string;
+  duration: number;
+  fov: number;
+  stiffness: number;
+}
+
+const REPLAY_SHOTS: ReplayShotDef[] = [
+  { kind: 'close_quarter', label: 'CLOSE-UP · THRUSTER', duration: 3.6, fov: 46, stiffness: 76 },
+  { kind: 'wide_crane', label: 'WIDE · CRANE SWEEP', duration: 4.5, fov: 70, stiffness: 28 },
+  { kind: 'close_front', label: 'CLOSE-UP · NOSE AERO', duration: 3.5, fov: 44, stiffness: 68 },
+  { kind: 'wide_heli', label: 'WIDE · HELICOPTER', duration: 4.6, fov: 74, stiffness: 24 },
+  { kind: 'wide_apex', label: 'WIDE · TRACKSIDE', duration: 4.2, fov: 58, stiffness: 36 }
+];
+
 const _hazardResult: HazardInteractionResult = {
   debrisHit: false,
   debrisHitPos: new THREE.Vector3(),
@@ -176,6 +207,12 @@ export class AhwooEngine {
   private activeLevel = 0;
   private selectedLevel = 0;
   private selectedShipId = 0;
+  private customByShip: Record<number, VehicleCustomization> = {
+    0: getDefaultCustomization(0),
+    1: getDefaultCustomization(1),
+    2: getDefaultCustomization(2),
+    3: getDefaultCustomization(3)
+  };
   private step: GameStep = 'home';
 
   private player: BuiltVehicle | null = null;
@@ -223,9 +260,23 @@ export class AhwooEngine {
     hitSpin: 0,
     air: false,
     airY: 0,
-    gates: 0
+    gates: 0,
+    driftActive: false,
+    driftDir: 0,
+    driftAngle: 0,
+    driftCharge: 0,
+    driftTier: 0 as 0 | 1 | 2 | 3,
+    driftScoreAcc: 0,
+    driftLiveScore: 0,
+    driftDuration: 0,
+    longDriftAnnounced: false,
+    totalDriftScore: 0,
+    driftBonusLabel: '',
+    driftBonusTimer: 0
   };
 
+  private prevPlayerProgress = 0;
+  private prevRank = 4;
   private firstFrame = true;
   private screenShake = 0;
   private aberrationPulse = 0;
@@ -233,8 +284,18 @@ export class AhwooEngine {
   private camBack = 10.2;
   private camUpD = 2.6;
   private camBoost = 0;
+  private camPullback = 0;
+  private camSpringPos = new THREE.Vector3();
+  private camSpringVel = new THREE.Vector3();
+  private camSpringInit = false;
+  private replayShotIdx = 0;
+  private replayShotElapsed = 0;
+  private replaySide = 1;
+  private replayWasActive = false;
+  private replayCutRequested = false;
   private hitstopTimer = 0;
   private reconU = 0;
+  private reconDir = 1;
   private reconSecondsLeft = 6;
   private reconInterval: number | null = null;
   private countdownText = '3';
@@ -251,6 +312,7 @@ export class AhwooEngine {
   private disposed = false;
 
   public readonly audio = new SoundEngine();
+  private readonly announcer: RaceAnnouncer;
 
   // Turntable preview renderer
   private pvCanvas: HTMLCanvasElement | null = null;
@@ -260,6 +322,7 @@ export class AhwooEngine {
   private pvRoot: THREE.Group | null = null;
   private pvPlatform: THREE.Group | null = null;
   private pvRing: THREE.Mesh | null = null;
+  private pvSpinners: THREE.Object3D[] = [];
   private pvDragYaw = -0.55;
   private pvIsDragging = false;
   private pvLastX = 0;
@@ -268,6 +331,10 @@ export class AhwooEngine {
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
     this.callbacks = callbacks;
+    this.announcer = new RaceAnnouncer(this.audio, () => {
+      if (!this.disposed) this.emitHud(false);
+    });
+    this.loadSavedCustomizations();
     this.isSoftwareGl = detectSoftwareGl();
 
     this.renderer = new THREE.WebGLRenderer({
@@ -301,7 +368,7 @@ export class AhwooEngine {
 
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
-    this.cam = new THREE.PerspectiveCamera(64, w / h, 0.4, 14000);
+    this.cam = new THREE.PerspectiveCamera(64, w / h, 0.5, 14000);
 
     this.ambient = new THREE.AmbientLight(0x93a7d8, 0.65);
     this.hemi = new THREE.HemisphereLight(0xbfe6ff, 0x35214f, 1.25);
@@ -376,9 +443,39 @@ export class AhwooEngine {
     }
 
     this.bindEvents();
+    this.callbacks.onCustomizationChange(this.getCustomization());
     this.emitHud(true);
     this.lastTickMs = performance.now();
     this.tick();
+  }
+
+  private loadSavedCustomizations(): void {
+    try {
+      const raw = window.localStorage.getItem('ahwoo_vehicle_custom_v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, Partial<VehicleCustomization>>;
+      for (const id of [0, 1, 2, 3]) {
+        const saved = parsed[String(id)];
+        if (saved) {
+          const def = getDefaultCustomization(id);
+          this.customByShip[id] = {
+            paintId: saved.paintId || def.paintId,
+            neonId: saved.neonId || def.neonId,
+            rimId: saved.rimId || def.rimId
+          };
+        }
+      }
+    } catch {
+      // ignore storage unavailability
+    }
+  }
+
+  private saveCustomizations(): void {
+    try {
+      window.localStorage.setItem('ahwoo_vehicle_custom_v1', JSON.stringify(this.customByShip));
+    } catch {
+      // ignore storage unavailability
+    }
   }
 
   private bindEvents(): void {
@@ -399,12 +496,17 @@ export class AhwooEngine {
 
     if (e.code === 'KeyM') {
       const muted = this.audio.toggleMute();
+      if (muted) this.announcer.stop();
       this.showSplit(muted ? 'AUDIO MUTED' : 'AUDIO ACTIVE');
       this.emitHud(true);
     }
 
     if (e.code === 'KeyV' && (this.step === 'race' || this.step === 'preview' || this.step === 'level')) {
       this.cycleWeather();
+    }
+
+    if (e.code === 'KeyC' && (this.step === 'paused' || this.step === 'results')) {
+      this.cutReplayCamera();
     }
 
     if (e.code === 'Escape') {
@@ -430,6 +532,7 @@ export class AhwooEngine {
       if (e.code === 'Digit1') this.commitLevel(0);
       if (e.code === 'Digit2') this.commitLevel(1);
       if (e.code === 'Digit3') this.commitLevel(2);
+      if (e.code === 'Digit4') this.commitLevel(3);
     } else if (this.step === 'preview' && (e.code === 'Enter' || e.code === 'Space')) {
       this.startCountdown();
     }
@@ -512,10 +615,24 @@ export class AhwooEngine {
     this.emitHud(true);
   }
 
+  public toggleVoiceover(): boolean {
+    this.audio.playUiClick();
+    const next = this.announcer.toggleEnabled();
+    this.emitHud(true);
+    return next;
+  }
+
+  public cutReplayCamera(): void {
+    if (this.step !== 'paused' && this.step !== 'results') return;
+    this.audio.playUiClick();
+    this.replayCutRequested = true;
+  }
+
   private rebuildPlayer(): void {
     if (this.player) this.scene.remove(this.player.g);
-    const prof = SHIP_PROFILES[this.selectedShipId];
-    this.player = buildLuxuryHoverCar(this.selectedShipId, prof.color, 1.05);
+    const custom = this.getCustomization(this.selectedShipId);
+    const neon = getNeonPreset(custom.neonId);
+    this.player = buildLuxuryHoverCar(this.selectedShipId, neon.color, 1.05, custom);
     this.scene.add(this.player.g);
   }
 
@@ -538,7 +655,8 @@ export class AhwooEngine {
         u: (i + 1) * 0.022,
         lap: 1,
         off: [-0.45, -0.1, 0.42][i] * hw,
-        baseSpeed: [0.82, 0.88, 0.94][i]
+        baseSpeed: [0.82, 0.88, 0.94][i],
+        prevProgress: (i + 1) * 0.022
       });
     });
   }
@@ -550,6 +668,20 @@ export class AhwooEngine {
 
   public getSelectedShip(): number {
     return this.selectedShipId;
+  }
+
+  public getCustomization(shipId = this.selectedShipId): VehicleCustomization {
+    return { ...(this.customByShip[shipId] || getDefaultCustomization(shipId)) };
+  }
+
+  public setCustomization(patch: Partial<VehicleCustomization>): void {
+    const current = this.getCustomization(this.selectedShipId);
+    this.customByShip[this.selectedShipId] = { ...current, ...patch };
+    this.saveCustomizations();
+    this.audio.playUiClick();
+    this.rebuildPlayer();
+    this.updateTurntableModel();
+    this.callbacks.onCustomizationChange(this.getCustomization(this.selectedShipId));
   }
 
   public getSelectedLevel(): number {
@@ -572,6 +704,9 @@ export class AhwooEngine {
       this.loadLevel(this.selectedLevel);
       this.setupRivals(this.selectedShipId);
     }
+    if (next !== 'race' && next !== 'results') {
+      this.announcer.stop();
+    }
     if (next === 'driver') {
       this.updateTurntableModel();
       this.resizeTurntable();
@@ -592,6 +727,7 @@ export class AhwooEngine {
     this.setupRivals(id);
     this.updateTurntableModel();
     this.callbacks.onShipChange(id);
+    this.callbacks.onCustomizationChange(this.getCustomization(id));
   }
 
   public cycleShip(dir: number): void {
@@ -692,15 +828,37 @@ export class AhwooEngine {
       v: 0,
       boost: 0,
       throttle: 0,
-      gates: 0
+      gates: 0,
+      driftActive: false,
+      driftDir: 0,
+      driftAngle: 0,
+      driftCharge: 0,
+      driftTier: 0,
+      driftScoreAcc: 0,
+      driftLiveScore: 0,
+      driftDuration: 0,
+      longDriftAnnounced: false,
+      totalDriftScore: 0,
+      driftBonusLabel: '',
+      driftBonusTimer: 0
     });
     this.rivals.forEach((r, i) => {
       r.u = (i + 1) * 0.022;
       r.lap = 1;
+      r.prevProgress = r.u;
     });
+    this.prevPlayerProgress = 0;
+    this.prevRank = 4;
     this.firstFrame = true;
+    this.camSpringInit = false;
+    this.camSpringVel.set(0, 0, 0);
+    this.replayWasActive = false;
+    this.announcer.resetRaceCooldowns();
     this.setStep('race');
-    this.showSplit(`LAP 1 / ${TOTAL_LAPS}`);
+    const def = LEVELS[this.activeLevel];
+    const isSprint = !!this.world?.trk.def.isSprint;
+    this.showSplit(isSprint ? 'SPRINT START // POINT-TO-POINT' : `LAP 1 / ${TOTAL_LAPS}`);
+    this.announcer.trigger('race_start', { circuit: def.name });
   }
 
   public pauseRace(): void {
@@ -708,14 +866,23 @@ export class AhwooEngine {
     this.S.run = false;
     this.heldKeys = {};
     this.audio.updateEngine(0, false, false);
+    this.audio.updateDriftSound(false, 0, 0);
     this.audio.updateWeatherAmbience('rain', 0, false);
     this.audio.updateHazardDrain(false);
+    this.announcer.stop();
+    this.replayWasActive = false;
+    this.replayShotIdx = 0;
+    this.replayShotElapsed = 0;
     this.setStep('paused');
   }
 
   public resumeRace(): void {
     if (this.step !== 'paused') return;
     this.S.run = true;
+    this.firstFrame = true;
+    this.camSpringInit = false;
+    this.camSpringVel.set(0, 0, 0);
+    this.replayWasActive = false;
     this.lastTickMs = performance.now();
     this.setStep('race');
   }
@@ -746,12 +913,27 @@ export class AhwooEngine {
       hitSpin: 0,
       air: false,
       airY: 0,
-      gates: 0
+      gates: 0,
+      driftActive: false,
+      driftDir: 0,
+      driftAngle: 0,
+      driftCharge: 0,
+      driftTier: 0,
+      driftScoreAcc: 0,
+      driftLiveScore: 0,
+      driftDuration: 0,
+      longDriftAnnounced: false,
+      totalDriftScore: 0,
+      driftBonusLabel: '',
+      driftBonusTimer: 0
     });
     this.rivals.forEach((r, i) => {
       r.u = (i + 1) * 0.022;
       r.lap = 1;
+      r.prevProgress = r.u;
     });
+    this.prevPlayerProgress = 0;
+    this.prevRank = 4;
     if (this.world) {
       this.world.trk.obstacles.forEach((o) => {
         o.cool = 0;
@@ -759,9 +941,13 @@ export class AhwooEngine {
     }
     this.weather?.resetCycle();
     this.weatherHazards?.resetCooldowns();
+    this.announcer.resetRaceCooldowns();
     this.hazardAlert = { active: false, label: '', kind: 'debris' };
     this.debrisAlertTimer = 0;
     this.firstFrame = true;
+    this.camSpringInit = false;
+    this.camSpringVel.set(0, 0, 0);
+    this.replayWasActive = false;
   }
 
   private showSplit(txt: string): void {
@@ -915,12 +1101,14 @@ export class AhwooEngine {
     while (this.pvRoot.children.length > 0) {
       this.pvRoot.remove(this.pvRoot.children[0]);
     }
-    const prof = SHIP_PROFILES[this.selectedShipId];
-    const built = buildLuxuryHoverCar(this.selectedShipId, prof.color, 1.0);
+    const custom = this.getCustomization(this.selectedShipId);
+    const neon = getNeonPreset(custom.neonId);
+    const built = buildLuxuryHoverCar(this.selectedShipId, neon.color, 1.0, custom);
     frameChassis(built.g, 3.6);
     this.pvRoot.add(built.g);
+    this.pvSpinners = built.rimSpinners;
     if (this.pvRing) {
-      (this.pvRing.material as THREE.MeshBasicMaterial).color.setHex(prof.color);
+      (this.pvRing.material as THREE.MeshBasicMaterial).color.setHex(neon.color);
     }
   }
 
@@ -968,6 +1156,9 @@ export class AhwooEngine {
       if (!this.pvIsDragging) this.pvDragYaw += dt * 0.48;
       this.pvRoot.rotation.y = this.pvDragYaw;
       this.pvRoot.position.y = Math.sin(now * 0.0025) * 0.05;
+      for (let i = 0; i < this.pvSpinners.length; i++) {
+        this.pvSpinners[i].rotation.x += dt * 5.2;
+      }
       if (this.pvPlatform) this.pvPlatform.rotation.y -= dt * 0.2;
       this.pvRenderer.render(this.pvScene, this.pvCam);
     }
@@ -992,6 +1183,8 @@ export class AhwooEngine {
     const prof = SHIP_PROFILES[this.selectedShipId];
     const S = this.S;
 
+    this.announcer.update(dt);
+
     if (this.hitstopTimer > 0) {
       this.hitstopTimer = Math.max(0, this.hitstopTimer - dt);
       return;
@@ -1003,7 +1196,54 @@ export class AhwooEngine {
       const left = !!(this.heldKeys.KeyA || this.heldKeys.ArrowLeft);
       const right = !!(this.heldKeys.KeyD || this.heldKeys.ArrowRight);
       const bst = !!((this.heldKeys.Space || this.heldKeys.KeyC) && S.e > 0.02 && !brk);
+      const driftKey = !!(this.heldKeys.ShiftLeft || this.heldKeys.ShiftRight || this.heldKeys.KeyK);
       const steer = (right ? 1 : 0) - (left ? 1 : 0);
+
+      if (S.driftBonusTimer > 0) {
+        S.driftBonusTimer = Math.max(0, S.driftBonusTimer - dt);
+        if (S.driftBonusTimer === 0) S.driftBonusLabel = '';
+      }
+
+      // Power-Slide Drift initiation, sustain & surge release
+      const wasDrifting = S.driftActive;
+      if (!S.driftActive && driftKey && !brk && !S.air && S.v > 65 && Math.abs(steer) > 0.12) {
+        S.driftActive = true;
+        S.driftDir = Math.sign(steer);
+        S.driftCharge = 0.05;
+        S.driftTier = 0;
+        S.driftScoreAcc = 0;
+        S.driftLiveScore = 0;
+        S.driftDuration = 0;
+        S.longDriftAnnounced = false;
+      } else if (S.driftActive && (!driftKey || brk || S.air || S.v < 55)) {
+        S.driftActive = false;
+      }
+
+      if (wasDrifting && !S.driftActive) {
+        if (!brk && S.driftTier >= 1) {
+          S.totalDriftScore += S.driftLiveScore;
+          const surgeDur = [0, 1.0, 1.75, 2.6][S.driftTier];
+          const tierNumeral = ['', 'I', 'II', 'III'][S.driftTier];
+          S.boost = Math.max(S.boost, surgeDur);
+          S.v = Math.max(S.v, MAXV * (1.14 + S.driftTier * 0.1));
+          S.e = Math.min(1, S.e + S.driftTier * 0.12);
+          S.driftBonusLabel = `TIER ${tierNumeral} SURGE +${S.driftLiveScore}`;
+          S.driftBonusTimer = 1.65;
+          this.audio.playBoost();
+          this.aberrationPulse = Math.max(this.aberrationPulse, 0.018 + S.driftTier * 0.005);
+          this.screenShake = Math.max(this.screenShake, 0.24);
+          this.showSplit(`DRIFT BOOST · TIER ${tierNumeral}`);
+        } else if (S.driftLiveScore > 0) {
+          S.totalDriftScore += S.driftLiveScore;
+        }
+        S.driftCharge = 0;
+        S.driftTier = 0;
+        S.driftScoreAcc = 0;
+        S.driftLiveScore = 0;
+        S.driftDuration = 0;
+        S.longDriftAnnounced = false;
+        S.driftDir = 0;
+      }
 
       S.throttle += ((thr && !brk ? 1 : 0) - S.throttle) * Math.min(1, dt * (thr && !brk ? 0.85 : 2.6));
 
@@ -1027,17 +1267,41 @@ export class AhwooEngine {
       const speedFrac = Math.min(1, S.v / MAXV);
       const boostFrac = boostOn ? 1 : 0;
       const grip = (0.96 - 0.16 * speedFrac) * prof.hnd;
-      const desiredVx = S.steer * (92 + boostFrac * 36) * (0.48 + 0.52 * speedFrac);
-      const latAccel = (175 + boostFrac * 240) * grip;
-      const dVx = desiredVx - S.vx;
-      S.vx += Math.max(-latAccel * dt, Math.min(latAccel * dt, dVx));
+
+      if (S.driftActive) {
+        const effSteer = S.driftDir * 0.58 + S.steer * 0.72;
+        const desiredVx = effSteer * (124 + boostFrac * 38) * (0.52 + 0.48 * speedFrac);
+        const latAccel = (225 + boostFrac * 240) * grip;
+        const dVx = desiredVx - S.vx;
+        S.vx += Math.max(-latAccel * dt, Math.min(latAccel * dt, dVx));
+
+        const targetDriftAngle = S.driftDir * (0.3 + Math.min(0.16, Math.abs(effSteer) * 0.14));
+        S.driftAngle += (targetDriftAngle - S.driftAngle) * Math.min(1, dt * 8.5);
+
+        const slipFactor = 0.55 + Math.min(1, Math.abs(S.vx) / 90) * 0.45;
+        const chargeRate = (0.32 + 0.16 * speedFrac) * slipFactor;
+        S.driftCharge = Math.min(1, S.driftCharge + chargeRate * dt);
+        S.driftTier = S.driftCharge >= 0.96 ? 3 : S.driftCharge >= 0.62 ? 2 : S.driftCharge >= 0.28 ? 1 : 0;
+        S.driftScoreAcc += (145 + S.v * 0.95) * (1 + S.driftTier * 0.45) * dt;
+        S.driftLiveScore = Math.floor(S.driftScoreAcc);
+        S.driftDuration += dt;
+      } else {
+        const desiredVx = S.steer * (92 + boostFrac * 36) * (0.48 + 0.52 * speedFrac);
+        const latAccel = (175 + boostFrac * 240) * grip;
+        const dVx = desiredVx - S.vx;
+        S.vx += Math.max(-latAccel * dt, Math.min(latAccel * dt, dVx));
+        S.driftAngle += (0 - S.driftAngle) * Math.min(1, dt * 11);
+      }
+
       S.x += S.vx * dt;
 
       const liveWidth = trk.hw * trk.widthAt(S.u);
-      S.v *= 1 - Math.min(0.35, Math.abs(S.vx) / liveWidth) * 0.14 * dt;
+      const driftDragMul = S.driftActive ? 0.045 : 0.14;
+      S.v *= 1 - Math.min(0.35, Math.abs(S.vx) / liveWidth) * driftDragMul * dt;
       S.hitSpin *= Math.max(0, 1 - dt * 2.4);
 
-      const limit = trk.hw * trk.widthAt(S.u) - 4.2;
+      const EDGE_BUFFER = 6.8;
+      const limit = Math.max(8, trk.hw * trk.widthAt(S.u) - EDGE_BUFFER);
       if (Math.abs(S.x) > limit) {
         S.x = Math.sign(S.x) * limit;
         S.vx *= -0.3;
@@ -1047,10 +1311,12 @@ export class AhwooEngine {
         this.screenShake = Math.max(this.screenShake, 0.22);
       }
 
+      const isSprint = !!trk.def.isSprint;
+      const clampU = (val: number) => (isSprint ? Math.max(0, Math.min(1, val)) : ((val % 1) + 1) % 1);
       S.prev = S.u;
       const probeDu = 0.0006;
-      const probeF0 = trk.fr(S.u);
-      const probeF1 = trk.fr(S.u + probeDu);
+      const probeF0 = trk.fr(clampU(S.u));
+      const probeF1 = trk.fr(clampU(S.u + probeDu));
       const arcStretch = Math.min(3.5, Math.max(1.0, probeF0.pos.distanceTo(probeF1.pos) / (probeDu * trk.len)));
       const stepU = (S.v * dt) / (trk.len * arcStretch);
       const gateAt = [0.2, 0.4, 0.6, 0.8][S.gates];
@@ -1125,7 +1391,7 @@ export class AhwooEngine {
         }
       }
 
-      const sec = Math.floor((((S.u % 1) + 1) % 1) * 4);
+      const sec = Math.floor(Math.max(0, Math.min(0.9999, trk.def.isSprint ? S.u : ((S.u % 1) + 1) % 1)) * 4);
       if (sec !== S.sector) {
         S.sector = sec;
         const split = S.t - S.lastSplit;
@@ -1133,7 +1399,22 @@ export class AhwooEngine {
         if (S.t > 1) this.showSplit(`SECTOR ${sec + 1} · ${split.toFixed(2)}s`);
       }
 
-      if (S.u >= 1) {
+      if (trk.def.isSprint) {
+        if (S.u >= 0.992) {
+          S.u = 0.992;
+          if (S.driftActive && S.driftLiveScore > 0) {
+            S.totalDriftScore += S.driftLiveScore;
+            S.driftActive = false;
+            S.driftLiveScore = 0;
+          }
+          S.run = false;
+          S.done = true;
+          this.audio.playLap(true);
+          this.audio.updateEngine(0, false, false);
+          this.audio.updateDriftSound(false, 0, 0);
+          this.setStep('results');
+        }
+      } else if (S.u >= 1) {
         const complete = S.gates >= 4;
         S.u -= 1;
         S.gates = 0;
@@ -1149,10 +1430,16 @@ export class AhwooEngine {
           }
           S.lap++;
           if (S.lap > TOTAL_LAPS) {
+            if (S.driftActive && S.driftLiveScore > 0) {
+              S.totalDriftScore += S.driftLiveScore;
+              S.driftActive = false;
+              S.driftLiveScore = 0;
+            }
             S.run = false;
             S.done = true;
             this.audio.playLap(true);
             this.audio.updateEngine(0, false, false);
+            this.audio.updateDriftSound(false, 0, 0);
             this.setStep('results');
           } else {
             this.audio.playLap(false);
@@ -1161,44 +1448,285 @@ export class AhwooEngine {
         }
       }
       S.e = Math.max(0, Math.min(1, S.e));
+    } else if (this.step === 'results') {
+      // Post-race autonomous victory cruise so the cinematic replay camera has continuous high-speed action
+      const isSprintCruise = !!trk.def.isSprint;
+      const targetCruiseV = MAXV * 0.88;
+      S.v += (targetCruiseV - S.v) * (1 - Math.exp(-dt * 2.2));
+      const targetLaneX = Math.sin(now * 0.00085) * trk.hw * 0.32;
+      S.vx = (targetLaneX - S.x) * 2.2;
+      S.x += S.vx * dt;
+      S.steer += (S.vx / 95 - S.steer) * Math.min(1, dt * 4);
+      S.driftAngle += (0 - S.driftAngle) * Math.min(1, dt * 6);
+      S.hitSpin *= Math.max(0, 1 - dt * 4);
+
+      const clampCruiseU = (val: number) => (isSprintCruise ? Math.max(0, Math.min(1, val)) : ((val % 1) + 1) % 1);
+      const pf0 = trk.fr(clampCruiseU(S.u));
+      const pf1 = trk.fr(clampCruiseU(S.u + 0.0006));
+      const cruiseArcStretch = Math.min(3.5, Math.max(1.0, pf0.pos.distanceTo(pf1.pos) / (0.0006 * trk.len)));
+      const stepU = (S.v * dt) / (trk.len * cruiseArcStretch);
+      S.u += stepU;
+      if (isSprintCruise && S.u >= 0.994) {
+        S.u = 0.14;
+        this.replayCutRequested = true;
+      } else if (!isSprintCruise && S.u >= 1) {
+        S.u -= 1;
+      }
+      const cu = clampCruiseU(S.u);
+      S.air = trk.elev.isGap(cu);
+      S.airY = S.air ? trk.elev.arc(cu) : 0;
     }
 
     // Update vehicle transform
-    const u = ((S.u % 1) + 1) % 1;
+    const isSprint = !!trk.def.isSprint;
+    const clampU = (val: number) => (isSprint ? Math.max(0, Math.min(1, val)) : ((val % 1) + 1) % 1);
+    const u = clampU(S.u);
     const F = trk.fr(u);
-    const hoverBob = S.run ? Math.sin(now * 0.008) * 0.1 : Math.sin(now * 0.003) * 0.3;
+    const probeDu = 0.0006;
+    const pf0 = trk.fr(u);
+    const pf1 = trk.fr(clampU(u + probeDu));
+    const liveArcStretch = Math.min(3.5, Math.max(1.0, pf0.pos.distanceTo(pf1.pos) / (probeDu * trk.len)));
+
+    const hoverBob = S.run || this.step === 'results' ? Math.sin(now * 0.008) * 0.1 : Math.sin(now * 0.003) * 0.2;
     ship.position
       .copy(F.pos)
       .addScaledVector(F.s, S.x)
-      .addScaledVector(F.up, 1.35 + S.airY + hoverBob);
+      .addScaledVector(F.up, 2.15 + S.airY + hoverBob);
 
     _vecNegS.copy(F.s).negate();
     _mat4.makeBasis(_vecNegS, F.up, F.t);
     ship.quaternion.setFromRotationMatrix(_mat4);
 
-    const uAhead = (u + 0.002) % 1;
-    const upcomingH = trk.fr(uAhead).h + trk.elev.arc(uAhead);
-    const pitch = Math.atan((upcomingH - F.h - trk.elev.arc(u)) / (0.002 * trk.len));
+    // True 3D lane trajectory chord tangent + pitch (including lateral lane twist on corkscrews)
+    const duPitch = 0.0018 / liveArcStretch;
+    const uBehind = clampU(u - duPitch);
+    const uAhead = clampU(u + duPitch);
+    const fB = trk.fr(uBehind);
+    const fA = trk.fr(uAhead);
+    _vecA.copy(fB.pos).addScaledVector(fB.s, S.x).addScaledVector(fB.up, trk.elev.arc(uBehind));
+    _vecB.copy(fA.pos).addScaledVector(fA.s, S.x).addScaledVector(fA.up, trk.elev.arc(uAhead));
+    _vecC.subVectors(_vecB, _vecA);
+    const pitch = Math.max(-0.85, Math.min(0.85, Math.atan2(_vecC.dot(F.up), Math.max(0.5, _vecC.dot(F.t)))));
     ship.rotateX(-pitch);
-    ship.rotateY(-S.vx * 0.0007);
-    ship.rotateZ(S.steer * 0.035 + S.vx * 0.0016 + S.hitSpin);
+    ship.rotateY(-S.vx * 0.0007 - S.driftAngle);
+    ship.rotateZ(S.steer * 0.038 + S.vx * 0.0016 + S.driftAngle * 0.18 + S.hitSpin);
 
-    const racing = this.step === 'race' || this.step === 'countdown' || this.step === 'paused';
-    const isBoosting = ((this.heldKeys.Space || this.heldKeys.KeyC) && S.e > 0.02 && S.run) || S.boost > 0;
+    const replayMode = this.step === 'paused' || this.step === 'results';
+    const racing = this.step === 'race' || this.step === 'countdown';
+    const isBoosting =
+      ((this.heldKeys.Space || this.heldKeys.KeyC) && S.e > 0.02 && S.run) ||
+      S.boost > 0 ||
+      (this.step === 'results' && Math.sin(now * 0.0014) > 0.45);
 
     this.audio.updateEngine(Math.min(1.5, S.v / MAXV), isBoosting, this.step === 'race' && S.run);
+    this.audio.updateDriftSound(
+      this.step === 'race' && S.run && S.driftActive,
+      Math.min(1.4, Math.abs(S.vx) / 85 + Math.abs(S.driftAngle)),
+      S.driftTier
+    );
 
-    if (!racing) {
+    if (replayMode) {
+      // Cinematic Replay Camera System: automatically cuts between sweeping wide shots and close-up action angles
+      // utilizing the existing 2nd-order spring-damped camera physics & tunnel/floor bounds guard.
+      let cutNow = !this.replayWasActive || this.replayCutRequested;
+      if (!cutNow) {
+        this.replayShotElapsed += dt;
+        const activeDef = REPLAY_SHOTS[this.replayShotIdx];
+        if (this.replayShotElapsed >= activeDef.duration) {
+          this.replayShotIdx = (this.replayShotIdx + 1) % REPLAY_SHOTS.length;
+          this.replayShotElapsed = 0;
+          this.replaySide = -this.replaySide;
+          cutNow = true;
+        }
+      } else {
+        if (!this.replayWasActive) {
+          this.replayShotIdx = 0;
+          this.replayShotElapsed = 0;
+          this.replaySide = 1;
+        } else if (this.replayCutRequested) {
+          this.replayShotIdx = (this.replayShotIdx + 1) % REPLAY_SHOTS.length;
+          this.replayShotElapsed = 0;
+          this.replaySide = -this.replaySide;
+        }
+        this.replayCutRequested = false;
+      }
+      this.replayWasActive = true;
+
+      const shot = REPLAY_SHOTS[this.replayShotIdx];
+      const p = Math.max(0, Math.min(1, this.replayShotElapsed / shot.duration));
+      const side = this.replaySide;
+
+      let offBack = 12;
+      let offLat = 20;
+      let offUp = 8;
+      let lookAheadT = 4;
+      let lookUp = 1.1;
+
+      if (shot.kind === 'close_quarter') {
+        offBack = THREE.MathUtils.lerp(7.2, 8.8, p);
+        offLat = side * THREE.MathUtils.lerp(4.2, 5.8, p);
+        offUp = THREE.MathUtils.lerp(1.55, 2.35, p);
+        lookAheadT = 3.5;
+        lookUp = 0.85;
+      } else if (shot.kind === 'wide_crane') {
+        offBack = THREE.MathUtils.lerp(-30, 22, p);
+        offLat = side * THREE.MathUtils.lerp(24, 34, Math.sin(p * Math.PI));
+        offUp = THREE.MathUtils.lerp(17, 11.5, p);
+        lookAheadT = 6;
+        lookUp = 1.4;
+      } else if (shot.kind === 'close_front') {
+        offBack = THREE.MathUtils.lerp(-10.5, -13.2, p);
+        offLat = side * THREE.MathUtils.lerp(3.8, -2.4, p);
+        offUp = THREE.MathUtils.lerp(2.05, 2.65, p);
+        lookAheadT = -1.2;
+        lookUp = 0.9;
+      } else if (shot.kind === 'wide_heli') {
+        offBack = THREE.MathUtils.lerp(24, -14, p);
+        offLat = -side * THREE.MathUtils.lerp(38, 28, p);
+        offUp = THREE.MathUtils.lerp(22, 28, Math.sin(p * Math.PI));
+        lookAheadT = 9;
+        lookUp = 1.6;
+      } else {
+        // wide_apex: low sweeping trackside pass
+        offBack = THREE.MathUtils.lerp(-34, 18, p);
+        offLat = side * THREE.MathUtils.lerp(13, 22, p);
+        offUp = THREE.MathUtils.lerp(4.4, 8.6, p);
+        lookAheadT = 2.0;
+        lookUp = 1.1;
+      }
+
+      // Check tunnel envelope around player so wide shots gracefully pull inside underwater/glass tunnels
+      const featureList = LEVELS[this.activeLevel].features;
+      let tunnelCeiling = Infinity;
+      for (let ti = 0; ti < featureList.length; ti++) {
+        const ft = featureList[ti];
+        if (ft.type === 'tunnel' && u >= ft.at - 0.012 && u <= ft.at + ft.w + 0.012) {
+          tunnelCeiling = (ft.height ?? 34) - 5.2;
+          break;
+        }
+      }
+      if (tunnelCeiling < Infinity) {
+        const maxTunnelLat = Math.max(6, trk.hw - 8.5);
+        offLat = Math.max(-maxTunnelLat, Math.min(maxTunnelLat, offLat));
+        offUp = Math.min(tunnelCeiling, offUp);
+      }
+
+      _vecC.normalize();
+      _camT.copy(_vecC);
+      // Wide shots align up cleanly with a horizon-friendly blend; close-ups bank tightly with road up
+      const horizonBlend = shot.kind.startsWith('wide') ? 0.65 : 0.18;
+      _replayUpTarget.copy(F.up).lerp(_worldUp, horizonBlend).normalize();
+      _camUp.lerp(_replayUpTarget, cutNow ? 1 : 1 - Math.exp(-dt * 8)).normalize();
+      _camUp.addScaledVector(_camT, -_camUp.dot(_camT)).normalize();
+      _camS.crossVectors(_camT, _camUp).normalize();
+
+      _camP
+        .copy(ship.position)
+        .addScaledVector(_camT, -offBack)
+        .addScaledVector(F.s, offLat)
+        .addScaledVector(F.up, offUp);
+
+      _vecB.copy(ship.position).addScaledVector(_camT, lookAheadT).addScaledVector(F.up, lookUp);
+
+      if (cutNow || !this.camSpringInit) {
+        this.camSpringPos.copy(_camP);
+        this.camSpringVel.set(0, 0, 0);
+        this.camSpringInit = true;
+        _camLook.copy(_vecB);
+        this.cam.fov = shot.fov;
+        if (cutNow) this.emitHud(true);
+      } else {
+        const stiffness = shot.stiffness;
+        const damping = 2 * Math.sqrt(stiffness) * 0.94;
+        _vecA.subVectors(_camP, this.camSpringPos);
+        this.camSpringVel.x += (_vecA.x * stiffness - this.camSpringVel.x * damping) * dt;
+        this.camSpringVel.y += (_vecA.y * stiffness - this.camSpringVel.y * damping) * dt;
+        this.camSpringVel.z += (_vecA.z * stiffness - this.camSpringVel.z * damping) * dt;
+        this.camSpringPos.addScaledVector(this.camSpringVel, dt);
+        _vecA.subVectors(this.camSpringPos, _camP);
+        const stretch = _vecA.length();
+        if (stretch > 9.0) {
+          this.camSpringPos.copy(_camP).addScaledVector(_vecA, 9.0 / stretch);
+        }
+      }
+      _camP.copy(this.camSpringPos);
+
+      // Keep camera above road deck and inside tunnels at camera's track station
+      const duCamR = offBack / (trk.len * liveArcStretch);
+      const uCamR = clampU(u - duCamR);
+      const camFrameR = trk.fr(uCamR);
+      _vecA.subVectors(_camP, camFrameR.pos);
+      const camUpRel = _vecA.dot(camFrameR.up);
+      const minFloorH = trk.elev.isGap(uCamR) ? -14 : 2.6;
+      if (camUpRel < minFloorH) {
+        _camP.addScaledVector(camFrameR.up, minFloorH - camUpRel);
+      }
+      if (tunnelCeiling < Infinity) {
+        _vecA.subVectors(_camP, camFrameR.pos);
+        const relLatR = _vecA.dot(camFrameR.s);
+        const maxTLat = Math.max(5, camFrameR.width - 7.0);
+        if (Math.abs(relLatR) > maxTLat) {
+          _camP.addScaledVector(camFrameR.s, Math.sign(relLatR) * maxTLat - relLatR);
+        }
+        const relUpR = _vecA.dot(camFrameR.up);
+        if (relUpR > tunnelCeiling) {
+          _camP.addScaledVector(camFrameR.up, tunnelCeiling - relUpR);
+        }
+      }
+
+      // 2-point sightline guard against track crests
+      for (let si = 0; si < 2; si++) {
+        const tMid = si === 0 ? 0.35 : 0.7;
+        const uMid = clampU(u - duCamR * (1 - tMid));
+        if (trk.elev.isGap(uMid)) continue;
+        const fMid = trk.fr(uMid);
+        _vecA.copy(_camP).lerp(ship.position, tMid);
+        _vecB.subVectors(_vecA, fMid.pos);
+        const losH = _vecB.dot(fMid.up);
+        if (losH < 1.8) {
+          _camP.addScaledVector(fMid.up, (1.8 - losH) / (1 - tMid));
+        }
+      }
+
+      // Recompute _vecB cleanly since LOS guard touched _vecB as scratch
+      _vecB.copy(ship.position).addScaledVector(_camT, lookAheadT).addScaledVector(F.up, lookUp);
+
+      this.cam.position.copy(_camP);
+      _camLook.lerp(_vecB, cutNow ? 1 : 1 - Math.exp(-dt * 12));
+      this.cam.up.copy(_camUp);
+      _camBasis.lookAt(this.cam.position, _camLook, _camUp);
+      _camDesiredQ.setFromRotationMatrix(_camBasis);
+      if (cutNow) {
+        this.cam.quaternion.copy(_camDesiredQ);
+      } else {
+        this.cam.quaternion.slerp(_camDesiredQ, 1 - Math.exp(-dt * 14));
+      }
+      this.cam.fov += (shot.fov - this.cam.fov) * (1 - Math.exp(-dt * 6));
+      this.cam.updateProjectionMatrix();
+      this.screenShake = 0;
+    } else if (!racing) {
+      this.replayWasActive = false;
       const sweep = this.step === 'preview' ? 0.032 : this.step === 'level' ? 0.018 : 0.007;
       const aerialH = this.step === 'preview' ? 540 : this.step === 'level' ? 460 : 400;
       const aerialFov = this.step === 'preview' ? 78 : this.step === 'level' ? 74 : 68;
-      this.reconU = (this.reconU + dt * sweep) % 1;
+      if (isSprint) {
+        this.reconU += dt * sweep * this.reconDir;
+        if (this.reconU >= 0.94) {
+          this.reconU = 0.94;
+          this.reconDir = -1;
+        } else if (this.reconU <= 0.04) {
+          this.reconU = 0.04;
+          this.reconDir = 1;
+        }
+      } else {
+        this.reconU = (this.reconU + dt * sweep) % 1;
+      }
       const rf = trk.fr(this.reconU);
-      const ahead = trk.fr((this.reconU + 0.045) % 1);
+      const ahead = trk.fr(clampU(this.reconU + 0.045 * (isSprint ? this.reconDir : 1)));
       this.cam.position
         .copy(rf.pos)
         .addScaledVector(rf.up, aerialH)
-        .addScaledVector(rf.t, -230);
+        .addScaledVector(rf.t, -230 * (isSprint ? this.reconDir : 1));
       this.cam.up.set(0, 1, 0);
       _vecA.copy(ahead.pos).addScaledVector(ahead.up, 40);
       this.cam.lookAt(_vecA);
@@ -1206,6 +1734,7 @@ export class AhwooEngine {
       this.cam.updateProjectionMatrix();
       this.screenShake = 0;
     } else {
+      this.replayWasActive = false;
       const spd = Math.min(2.2, S.v / MAXV);
       const speed01 = Math.min(1, spd);
       this.camBoost += ((isBoosting ? 1 : 0) - this.camBoost) * (1 - Math.exp(-dt * 2.8));
@@ -1217,37 +1746,120 @@ export class AhwooEngine {
       }
       const inLoop = trk.loops.some((L) => u >= L.at && u <= L.at + L.w);
       const inRoll = corkK > 0.01;
-      const stuntRate = (inLoop ? 18 : 0) + (inRoll ? 16 : 0);
+      const stuntRate = (inLoop ? 22 : 0) + (inRoll ? 24 : 0);
 
-      // Zoomed-in hero chase framing so the luxury hovercar stays large, detailed, and centered
-      const targetBack = 9.4 + spd * 1.9 + this.camBoost * 2.2 + (S.air ? 1.5 : 0) - (inLoop ? 0.7 : 0);
-      const targetUp = 2.45 + spd * 0.25 + this.camBoost * 0.24 + (S.air ? 0.3 : 0);
-      this.camBack += (targetBack - this.camBack) * (1 - Math.exp(-dt * 4.5));
-      this.camUpD += (targetUp - this.camUpD) * (1 - Math.exp(-dt * 4.5));
+      // Pull back smoothly during boost and high-intensity loops/corkscrews/jumps for unobstructed sightlines
+      const intensityPull =
+        this.camBoost * 3.4 + (inLoop ? 2.8 : 0) + (inRoll ? corkK * 3.2 : 0) + (S.air ? 2.2 : 0);
+      this.camPullback += (intensityPull - this.camPullback) * (1 - Math.exp(-dt * 4.2));
+      const targetBack = 9.8 + spd * 1.9 + this.camPullback;
+      const targetUp =
+        2.95 +
+        spd * 0.25 +
+        this.camBoost * 0.3 +
+        (inLoop ? 0.85 : 0) +
+        (inRoll ? corkK * 1.2 : 0) +
+        (S.air ? 0.5 : 0);
+      this.camBack += (targetBack - this.camBack) * (1 - Math.exp(-dt * 4.8));
+      this.camUpD += (targetUp - this.camUpD) * (1 - Math.exp(-dt * 4.8));
 
-      _camT.lerp(F.t, 1 - Math.exp(-dt * (16 + speed01 * 8 + stuntRate))).normalize();
-      _camUp.lerp(F.up, 1 - Math.exp(-dt * (12 + speed01 * 6 + stuntRate))).normalize();
+      // Lock camera forward and surface-up axes smoothly to slope & corkscrew frames
+      _vecC.normalize();
+      _camT.lerp(_vecC, 1 - Math.exp(-dt * (20 + speed01 * 10 + stuntRate))).normalize();
+      _camUp.lerp(F.up, 1 - Math.exp(-dt * (18 + speed01 * 8 + stuntRate))).normalize();
       _camUp.addScaledVector(_camT, -_camUp.dot(_camT)).normalize();
       _camS.crossVectors(_camT, _camUp).normalize();
 
-      // Anchor directly to ship.position so the vehicle can NEVER outrun the camera on boost, jumps, or loops
+      // Compute ideal chase position behind hover car
       _camP
         .copy(ship.position)
         .addScaledVector(_camT, -this.camBack)
-        .addScaledVector(_camUp, this.camUpD + (inRoll ? corkK * 2.2 : 0))
-        .addScaledVector(_camS, -S.vx * 0.012);
+        .addScaledVector(_camUp, this.camUpD + (inRoll ? corkK * 1.4 : 0))
+        .addScaledVector(_camS, -S.vx * 0.0085 - S.steer * 0.85);
 
-      if (this.firstFrame) {
+      // 2nd-order Spring-Damped camera follow: velocity-based lag prevents harsh snapping and loop/corner clipping
+      if (this.firstFrame || !this.camSpringInit) {
+        this.camSpringPos.copy(_camP);
+        this.camSpringVel.set(0, 0, 0);
+        this.camSpringInit = true;
         _camLook.copy(ship.position).addScaledVector(_camT, 18);
         this.firstFrame = false;
+      } else {
+        const stiffness = 105 + spd * 35 + stuntRate * 2.8;
+        const damping = 2 * Math.sqrt(stiffness) * 0.94;
+        _vecA.subVectors(_camP, this.camSpringPos);
+        this.camSpringVel.x += (_vecA.x * stiffness - this.camSpringVel.x * damping) * dt;
+        this.camSpringVel.y += (_vecA.y * stiffness - this.camSpringVel.y * damping) * dt;
+        this.camSpringVel.z += (_vecA.z * stiffness - this.camSpringVel.z * damping) * dt;
+        this.camSpringPos.addScaledVector(this.camSpringVel, dt);
+        _vecA.subVectors(this.camSpringPos, _camP);
+        const stretch = _vecA.length();
+        if (stretch > 5.5) {
+          this.camSpringPos.copy(_camP).addScaledVector(_vecA, 5.5 / stretch);
+        }
       }
+      _camP.copy(this.camSpringPos);
+
+      // Anti-wall & anti-floor bounds clamp at the camera's longitudinal track station
+      const duCam = this.camBack / (trk.len * liveArcStretch);
+      const uCam = clampU(u - duCam);
+      const camFrame = trk.fr(uCam);
+      _vecA.subVectors(_camP, camFrame.pos);
+      const relT = _vecA.dot(camFrame.t);
+      const maxLat = Math.max(5, camFrame.width - 6.8);
+      const relS = Math.max(-maxLat, Math.min(maxLat, _vecA.dot(camFrame.s)));
+
+      const minCamUp = trk.elev.isGap(uCam) ? -20 : 2.9;
+      let maxCamUp = Infinity;
+      const tunnelList = LEVELS[this.activeLevel].features;
+      for (let ti = 0; ti < tunnelList.length; ti++) {
+        const ft = tunnelList[ti];
+        if (ft.type === 'tunnel' && uCam >= ft.at && uCam <= ft.at + ft.w) {
+          maxCamUp = (ft.height ?? 34) - 4.5;
+          break;
+        }
+      }
+      const relUp = Math.min(maxCamUp, Math.max(minCamUp, _vecA.dot(camFrame.up)));
+
+      _camP
+        .copy(camFrame.pos)
+        .addScaledVector(camFrame.t, relT)
+        .addScaledVector(camFrame.s, relS)
+        .addScaledVector(camFrame.up, relUp);
+
+      // 2-point sightline guard between camera and car so convex slope crests & corkscrew twists never block LOS
+      for (let si = 0; si < 2; si++) {
+        const tMid = si === 0 ? 0.35 : 0.7;
+        const uMid = clampU(u - duCam * (1 - tMid));
+        if (trk.elev.isGap(uMid)) continue;
+        const fMid = trk.fr(uMid);
+        _vecA.copy(_camP).lerp(ship.position, tMid);
+        _vecB.subVectors(_vecA, fMid.pos);
+        const losH = _vecB.dot(fMid.up);
+        if (losH < 1.85) {
+          const lift = (1.85 - losH) / (1 - tMid);
+          _camP.addScaledVector(fMid.up, lift);
+        }
+      }
+
+      if (maxCamUp < Infinity) {
+        _vecA.subVectors(_camP, camFrame.pos);
+        const postUp = _vecA.dot(camFrame.up);
+        if (postUp > maxCamUp) {
+          _camP.addScaledVector(camFrame.up, maxCamUp - postUp);
+        }
+      }
+
       this.cam.position.copy(_camP);
 
       this.camDip *= Math.max(0, 1 - dt * 4.2);
-      if (Math.abs(this.camDip) > 0.01) this.cam.position.addScaledVector(_camUp, this.camDip * 0.42);
+      if (Math.abs(this.camDip) > 0.01) {
+        const safeDip = Math.max(-(relUp - 2.2), this.camDip * 0.28);
+        this.cam.position.addScaledVector(_camUp, safeDip);
+      }
 
       if (this.screenShake > 0.001) {
-        const sh = (this.screenShake * 1.4) / (1 + spd * 0.7);
+        const sh = (this.screenShake * 1.2) / (1 + spd * 0.7);
         this.cam.position.x += (Math.random() - 0.5) * sh;
         this.cam.position.y += (Math.random() - 0.5) * sh;
         this.cam.position.z += (Math.random() - 0.5) * sh;
@@ -1255,11 +1867,11 @@ export class AhwooEngine {
       }
 
       const aheadDist = 18 + spd * 10 + this.camBoost * 6;
-      const aheadRoad = trk.fr(u + aheadDist / trk.len);
-      _vecB.copy(ship.position).addScaledVector(_camT, aheadDist).addScaledVector(_camUp, 1.05);
+      const aheadRoad = trk.fr(clampU(u + aheadDist / (trk.len * liveArcStretch)));
+      _vecB.copy(ship.position).addScaledVector(_camT, aheadDist).addScaledVector(_camUp, 0.9);
       _vecC
         .copy(aheadRoad.pos)
-        .addScaledVector(aheadRoad.up, 2.2 + (S.air ? S.airY * 0.65 : 0))
+        .addScaledVector(aheadRoad.up, 2.4 + (S.air ? S.airY * 0.65 : 0))
         .addScaledVector(aheadRoad.s, S.x * 0.45);
       _vecB.lerp(_vecC, inLoop || inRoll ? 0.34 : 0.46);
 
@@ -1269,42 +1881,109 @@ export class AhwooEngine {
       _camDesiredQ.setFromRotationMatrix(_camBasis);
       this.cam.quaternion.slerp(_camDesiredQ, 1 - Math.exp(-dt * (22 + speed01 * 12 + stuntRate)));
 
-      const targetFov = 62 + speed01 * 4 + spd * 2.5 + this.camBoost * 6.5 + (inRoll ? corkK * 5 : 0);
-      this.cam.fov += (targetFov - this.cam.fov) * (1 - Math.exp(-dt * 3.8));
+      // Dynamic FOV adjustment: expands aggressively when boosting + in high-intensity sections
+      const targetFov =
+        62 +
+        speed01 * 4.5 +
+        spd * 2.5 +
+        this.camBoost * 11.5 +
+        (inLoop ? 3.5 : 0) +
+        (inRoll ? corkK * 5.5 : 0);
+      this.cam.fov += (targetFov - this.cam.fov) * (1 - Math.exp(-dt * 4.5));
       this.cam.updateProjectionMatrix();
     }
 
-    // Engine pulse
-    const flamePulse = 1 + Math.sin(now * 0.045) * 0.16 + (isBoosting ? 1.8 : 0);
-    this.player.engine.scale.set(flamePulse, flamePulse, 1.0 + (S.v / MAXV) * 1.4 + (isBoosting ? 2.2 : 0));
-    this.player.light.intensity = 1.4 + (S.v / MAXV) * 1.8 + (isBoosting ? 5 : 0);
+    // Animated Multi-Stage Booster Plumes, Traveling Mach Rings & Underbody Repulsors
+    const speedNormBoost = Math.min(1.4, S.v / MAXV);
+    const flicker = 0.92 + Math.sin(now * 0.055) * 0.1 + Math.cos(now * 0.087) * 0.06;
+    const lenScale = (0.75 + speedNormBoost * 0.85 + (isBoosting ? 1.15 : 0)) * flicker;
+    const radScale = 0.86 + speedNormBoost * 0.24 + (isBoosting ? 0.42 : 0);
+    this.player.engine.scale.set(radScale, radScale, lenScale);
+    for (let bi = 0; bi < this.player.boosterCores.length; bi++) {
+      const core = this.player.boosterCores[bi];
+      const micro = 0.9 + Math.sin(now * 0.08 + bi * 1.7) * 0.14;
+      core.scale.set(micro, micro, 0.94 + Math.sin(now * 0.06 + bi) * 0.12);
+    }
+    const ringSpeed = isBoosting ? 5.4 : 2.1 + speedNormBoost * 1.8;
+    for (let ri = 0; ri < this.player.shockRings.length; ri++) {
+      const ring = this.player.shockRings[ri];
+      const phase = ((now * 0.001 * ringSpeed + ri * 0.5) % 1 + 1) % 1;
+      ring.position.z = -0.35 - phase * 2.75;
+      const rSc = (0.95 - phase * 0.48) * (isBoosting ? 1.25 : 0.88);
+      ring.scale.setScalar(rSc);
+    }
+    const hoverFlare = 0.82 + Math.sin(now * 0.012) * 0.12 + (S.air ? 0.35 : 0) + (isBoosting ? 0.28 : 0);
+    for (let ci = 0; ci < this.player.repulsorCones.length; ci++) {
+      this.player.repulsorCones[ci].scale.set(hoverFlare, hoverFlare * (isBoosting ? 1.3 : 1.0), hoverFlare);
+    }
+    (this.player.groundHalo.material as THREE.MeshBasicMaterial).opacity =
+      S.air ? 0.12 : 0.24 + speedNormBoost * 0.12 + (isBoosting ? 0.15 : 0);
+    this.player.light.intensity = 1.2 + speedNormBoost * 1.1 + (isBoosting ? 1.5 : 0);
 
-    if (S.run && S.v > 20) {
+    const rimSpinRate = dt * (3.2 + S.v * 0.14);
+    for (let si = 0; si < this.player.rimSpinners.length; si++) {
+      this.player.rimSpinners[si].rotation.x += rimSpinRate;
+    }
+
+    if ((S.run || this.step === 'results') && S.v > 20) {
       _vecA.copy(ship.position).addScaledVector(F.s, -0.9).addScaledVector(F.t, -2.8);
       _vecB.copy(ship.position).addScaledVector(F.s, 0.9).addScaledVector(F.t, -2.8);
       this.spawnTrailParticle(_vecA);
       this.spawnTrailParticle(_vecB);
       if (isBoosting && Math.random() < 0.35) this.spawnSparks(ship.position, 6);
+      if (S.driftActive) {
+        _vecA.copy(ship.position).addScaledVector(F.s, -S.driftDir * 1.4).addScaledVector(F.t, -2.1).addScaledVector(F.up, -0.5);
+        this.spawnSparks(_vecA, 2 + S.driftTier * 2);
+      }
     }
 
     // Rivals
     for (const rv of this.rivals) {
-      const speed = MAXV * rv.baseSpeed * (S.run ? 1 : this.step === 'paused' ? 0 : 0.15);
-      rv.u += (speed * dt) / trk.len;
-      if (rv.u >= 1) {
+      const speed =
+        MAXV * rv.baseSpeed * (S.run ? 1 : this.step === 'paused' ? 0 : this.step === 'results' ? 0.86 : 0.15);
+      const rpf0 = trk.fr(clampU(rv.u));
+      const rpf1 = trk.fr(clampU(rv.u + 0.0006));
+      const rArcStretch = Math.min(3.5, Math.max(1.0, rpf0.pos.distanceTo(rpf1.pos) / (0.0006 * trk.len)));
+      if (!(isSprint && rv.u >= 0.996 && this.step !== 'results')) {
+        rv.u += (speed * dt) / (trk.len * rArcStretch);
+      }
+      if (isSprint) {
+        if (this.step === 'results' && rv.u >= 0.995) {
+          rv.u = 0.12;
+        } else {
+          rv.u = Math.min(0.996, rv.u);
+        }
+      } else if (rv.u >= 1) {
         rv.u -= 1;
         rv.lap++;
       }
-      const rf = trk.fr(rv.u);
-      const rArc = trk.elev.arc(rv.u);
-      rv.g.position.copy(rf.pos).addScaledVector(rf.s, rv.off).addScaledVector(rf.up, 1.35 + rArc);
+      const ru = clampU(rv.u);
+      const rf = trk.fr(ru);
+      const rArc = trk.elev.arc(ru);
+      rv.g.position.copy(rf.pos).addScaledVector(rf.s, rv.off).addScaledVector(rf.up, 2.15 + rArc);
       _vecNegS.copy(rf.s).negate();
       _mat4.makeBasis(_vecNegS, rf.up, rf.t);
       rv.g.quaternion.setFromRotationMatrix(_mat4);
-      const rAhead = (rv.u + 0.002) % 1;
-      const rPitch = Math.atan((trk.fr(rAhead).h + trk.elev.arc(rAhead) - rf.h - rArc) / (0.002 * trk.len));
+      const rDu = 0.0018 / rArcStretch;
+      const ruB = clampU(ru - rDu);
+      const ruA = clampU(ru + rDu);
+      const rB = trk.fr(ruB);
+      const rA = trk.fr(ruA);
+      _vecA.copy(rB.pos).addScaledVector(rB.s, rv.off).addScaledVector(rB.up, trk.elev.arc(ruB));
+      _vecB.copy(rA.pos).addScaledVector(rA.s, rv.off).addScaledVector(rA.up, trk.elev.arc(ruA));
+      _vecC.subVectors(_vecB, _vecA);
+      const rPitch = Math.max(-0.85, Math.min(0.85, Math.atan2(_vecC.dot(rf.up), Math.max(0.5, _vecC.dot(rf.t)))));
       rv.g.rotateX(-rPitch);
       rv.engine.scale.set(1, 1, 1.15 + Math.sin(now * 0.02 + rv.off) * 0.2);
+      for (let ri = 0; ri < rv.shockRings.length; ri++) {
+        const ring = rv.shockRings[ri];
+        const rPhase = ((now * 0.003 + ri * 0.5) % 1 + 1) % 1;
+        ring.position.z = -0.35 - rPhase * 2.2;
+        ring.scale.setScalar(0.9 - rPhase * 0.45);
+      }
+      for (let si = 0; si < rv.rimSpinners.length; si++) {
+        rv.rimSpinners[si].rotation.x += dt * (3 + speed * 0.12);
+      }
 
       if (S.run) {
         const dist = ship.position.distanceTo(rv.g.position);
@@ -1320,6 +1999,14 @@ export class AhwooEngine {
           this.audio.playCrash();
         }
       }
+    }
+
+    // Real-time overtake & position tracking for dynamic Race Announcer commentary
+    if (S.run) {
+      for (let i = 0; i < this.rivals.length; i++) {
+        this.rivals[i].prevProgress = isSprint ? Math.max(0, Math.min(1, this.rivals[i].u)) : this.rivals[i].lap - 1 + this.rivals[i].u;
+      }
+      this.prevPlayerProgress = isSprint ? Math.max(0, Math.min(1, S.u)) : S.lap - 1 + (((S.u % 1) + 1) % 1);
     }
 
     // Particles
@@ -1455,7 +2142,7 @@ export class AhwooEngine {
 
       if (this.bloomPass) {
         const defLook = LEVELS[this.activeLevel].look;
-        this.bloomPass.strength = defLook.bloom + this.weather.getBloomAdd();
+        this.bloomPass.strength = Math.min(0.68, defLook.bloom + this.weather.getBloomAdd());
       }
     }
 
@@ -1478,9 +2165,12 @@ export class AhwooEngine {
 
     if (!force && this.step !== 'race' && this.step !== 'countdown') return;
 
+    const isSprint = !!trk?.def.isSprint;
+    const totalLaps = isSprint ? 1 : TOTAL_LAPS;
+    const uNorm = Math.max(0, Math.min(1, isSprint ? S.u : ((S.u % 1) + 1) % 1));
     const playerProfile = SHIP_PROFILES[this.selectedShipId] || SHIP_PROFILES[0];
     const playerIdent = getPlayerIdentity(this.selectedShipId);
-    const playerProgress = S.lap - 1 + S.u;
+    const playerProgress = isSprint ? uNorm : S.lap - 1 + uNorm;
 
     const unsorted: StandingEntry[] = [
       {
@@ -1491,7 +2181,7 @@ export class AhwooEngine {
         colorHex: playerProfile.hex,
         isPlayer: true,
         rank: 1,
-        lap: Math.min(S.lap, TOTAL_LAPS),
+        lap: Math.min(S.lap, totalLaps),
         progress: playerProgress
       },
       ...this.rivals.map((rv) => {
@@ -1504,8 +2194,8 @@ export class AhwooEngine {
           colorHex: prof.hex,
           isPlayer: false,
           rank: 1,
-          lap: Math.min(rv.lap, TOTAL_LAPS),
-          progress: rv.lap - 1 + rv.u
+          lap: Math.min(rv.lap, totalLaps),
+          progress: isSprint ? Math.max(0, Math.min(1, rv.u)) : rv.lap - 1 + rv.u
         };
       })
     ];
@@ -1521,8 +2211,10 @@ export class AhwooEngine {
       speedKmh: Math.round(S.v * 3.2),
       speedNorm: S.v / (MAXV * 1.45),
       energy: S.e,
-      lap: Math.min(S.lap, TOTAL_LAPS),
-      totalLaps: TOTAL_LAPS,
+      lap: Math.min(S.lap, totalLaps),
+      totalLaps,
+      isSprint,
+      progressPct: Math.round(uNorm * 100),
       rank,
       totalRacers: this.rivals.length + 1,
       standings: unsorted,
@@ -1548,6 +2240,17 @@ export class AhwooEngine {
             hazardTag: 'HAZARD: FLOATING DEBRIS'
           },
       hazardAlert: this.hazardAlert,
+      drift: {
+        active: S.driftActive,
+        dir: S.driftDir,
+        tier: S.driftTier,
+        charge: S.driftCharge,
+        liveScore: S.driftLiveScore,
+        totalScore: S.totalDriftScore,
+        lastBonusLabel: S.driftBonusLabel
+      },
+      announcer: this.announcer.getSnapshot(),
+      replayShot: REPLAY_SHOTS[this.replayShotIdx]?.label || 'WIDE · CRANE SWEEP',
       trackStats: trk
         ? {
             lengthKm: (trk.len / 1000).toFixed(1),
@@ -1576,6 +2279,7 @@ export class AhwooEngine {
     window.removeEventListener('resize', this.onResize);
 
     this.detachTurntable();
+    this.announcer.dispose();
     this.audio.dispose();
     if (this.weatherHazards) {
       this.weatherHazards.dispose(this.scene);

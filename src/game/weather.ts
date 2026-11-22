@@ -39,7 +39,7 @@ export const LEVEL_WEATHER_PHASES: Record<LevelDef['id'], WeatherPhaseDef[]> = {
       rimTint: 0x00f0ff,
       rimTintMix: 0.55,
       hemiMul: 0.85,
-      bloomAdd: 0.16,
+      bloomAdd: 0.11,
       solarFlareStrength: 0,
       lightningRate: 0.36
     },
@@ -67,7 +67,7 @@ export const LEVEL_WEATHER_PHASES: Record<LevelDef['id'], WeatherPhaseDef[]> = {
       rimTint: 0x9d7bff,
       rimTintMix: 0.65,
       hemiMul: 0.92,
-      bloomAdd: 0.2,
+      bloomAdd: 0.13,
       solarFlareStrength: 0,
       lightningRate: 0.58
     },
@@ -211,7 +211,7 @@ export const LEVEL_WEATHER_PHASES: Record<LevelDef['id'], WeatherPhaseDef[]> = {
       rimTint: 0xff6b3d,
       rimTintMix: 0.62,
       hemiMul: 1.25,
-      bloomAdd: 0.28,
+      bloomAdd: 0.14,
       solarFlareStrength: 1.0,
       lightningRate: 0
     },
@@ -239,7 +239,7 @@ export const LEVEL_WEATHER_PHASES: Record<LevelDef['id'], WeatherPhaseDef[]> = {
       rimTint: 0x31e8ff,
       rimTintMix: 0.7,
       hemiMul: 1.15,
-      bloomAdd: 0.22,
+      bloomAdd: 0.12,
       solarFlareStrength: 0.38,
       lightningRate: 0
     },
@@ -269,6 +269,92 @@ export const LEVEL_WEATHER_PHASES: Record<LevelDef['id'], WeatherPhaseDef[]> = {
       hemiMul: 1.0,
       bloomAdd: 0.04,
       solarFlareStrength: 0.14,
+      lightningRate: 0
+    }
+  ],
+  space_beach: [
+    {
+      id: 'bioluminescent_tide',
+      label: 'BIOLUMINESCENT TIDE',
+      cn: '荧光海潮',
+      kind: 'mist',
+      intensity: 0.68,
+      wind: [28, -14, -18],
+      streakSpeed: 0.78,
+      streakLength: 6.4,
+      streakOpacity: 0.42,
+      moteOpacity: 0.72,
+      streakColors: [0x36f5d8, 0xf5c451, 0x9ef9ff],
+      moteColor: 0x52f7e4,
+      fogNearMul: 0.88,
+      fogFarMul: 0.88,
+      fogTint: 0x0d2b4e,
+      fogTintMix: 0.34,
+      keyMul: 0.96,
+      keyTint: 0xffe4b8,
+      keyTintMix: 0.2,
+      rimMul: 1.28,
+      rimTint: 0x36f5d8,
+      rimTintMix: 0.48,
+      hemiMul: 1.05,
+      bloomAdd: 0.08,
+      solarFlareStrength: 0.16,
+      lightningRate: 0
+    },
+    {
+      id: 'cosmic_monsoon',
+      label: 'COSMIC MONSOON',
+      cn: '星海骤雨',
+      kind: 'rain',
+      intensity: 0.88,
+      wind: [-22, -135, 16],
+      streakSpeed: 1.08,
+      streakLength: 9.4,
+      streakOpacity: 0.62,
+      moteOpacity: 0.56,
+      streakColors: [0x36f5d8, 0xf5c451, 0x7fd8ff],
+      moteColor: 0x8df6ff,
+      fogNearMul: 0.78,
+      fogFarMul: 0.76,
+      fogTint: 0x0a2140,
+      fogTintMix: 0.45,
+      keyMul: 0.84,
+      keyTint: 0xaad8ff,
+      keyTintMix: 0.32,
+      rimMul: 1.45,
+      rimTint: 0x36f5d8,
+      rimTintMix: 0.55,
+      hemiMul: 0.95,
+      bloomAdd: 0.11,
+      solarFlareStrength: 0,
+      lightningRate: 0.24
+    },
+    {
+      id: 'starlight_breeze',
+      label: 'STARLIGHT BREEZE',
+      cn: '星穹微风',
+      kind: 'mist',
+      intensity: 0.34,
+      wind: [12, -5, 10],
+      streakSpeed: 0.42,
+      streakLength: 4.2,
+      streakOpacity: 0.25,
+      moteOpacity: 0.5,
+      streakColors: [0x9ef9ff, 0xf5c451, 0x52f7e4],
+      moteColor: 0x9ef9ff,
+      fogNearMul: 1.0,
+      fogFarMul: 1.0,
+      fogTint: 0x0e3056,
+      fogTintMix: 0.12,
+      keyMul: 1.04,
+      keyTint: 0xffe4b8,
+      keyTintMix: 0.12,
+      rimMul: 1.05,
+      rimTint: 0x36f5d8,
+      rimTintMix: 0.2,
+      hemiMul: 1.02,
+      bloomAdd: 0.04,
+      solarFlareStrength: 0.12,
       lightningRate: 0
     }
   ]
@@ -396,7 +482,7 @@ export class WeatherSystem {
     this.moteTex = radialTexture('rgba(255,255,255,0.95)');
     this.moteMat = new THREE.PointsMaterial({
       map: this.moteTex,
-      size: def.id === 'space' ? 3.2 : def.id === 'beach' ? 2.8 : 2.1,
+      size: def.id === 'space' ? 3.2 : def.id === 'beach' || def.id === 'space_beach' ? 2.6 : 2.1,
       vertexColors: true,
       transparent: true,
       opacity: 0.5,
@@ -467,9 +553,10 @@ export class WeatherSystem {
         this.skyFxGroup.add(m);
         this.lightningPlanes.push(m);
       }
-    } else if (this.def.id === 'beach') {
+    } else if (this.def.id === 'beach' || this.def.id === 'space_beach') {
       // Drifting bioluminescent coastal mist veils near horizon
-      const mistTex = radialTexture('rgba(165, 255, 232, 0.38)');
+      const isSpaceBeach = this.def.id === 'space_beach';
+      const mistTex = radialTexture(isSpaceBeach ? 'rgba(82, 247, 228, 0.36)' : 'rgba(165, 255, 232, 0.38)');
       for (let i = 0; i < 10; i++) {
         const ang = (i / 10) * Math.PI * 2;
         const rad = 1800 + (i % 3) * 650;
@@ -477,9 +564,9 @@ export class WeatherSystem {
           new THREE.PlaneGeometry(1600, 520),
           new THREE.MeshBasicMaterial({
             map: mistTex,
-            color: i % 2 === 0 ? 0x8cf7e4 : 0xffb3da,
+            color: isSpaceBeach ? (i % 2 === 0 ? 0x36f5d8 : 0xf5c451) : (i % 2 === 0 ? 0x8cf7e4 : 0xffb3da),
             transparent: true,
-            opacity: 0.22,
+            opacity: isSpaceBeach ? 0.16 : 0.22,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             fog: false,
@@ -487,7 +574,7 @@ export class WeatherSystem {
             toneMapped: false
           })
         );
-        const baseY = -120 + (i % 3) * 90;
+        const baseY = (isSpaceBeach ? 10 : -120) + (i % 3) * 90;
         mesh.position.set(Math.cos(ang) * rad, baseY, Math.sin(ang) * rad);
         mesh.lookAt(0, baseY, 0);
         this.skyFxGroup.add(mesh);
@@ -627,7 +714,7 @@ export class WeatherSystem {
   }
 
   public getBloomAdd(): number {
-    return this.curBloomAdd + this.lightningFlash * 0.18 + this.solarBurst * 0.22;
+    return Math.min(0.16, this.curBloomAdd + this.lightningFlash * 0.1 + this.solarBurst * 0.12);
   }
 
   public getSolarFlareUniform(): number {
@@ -766,13 +853,13 @@ export class WeatherSystem {
       }
     }
 
-    // Coastal mist veils (Vesper Shore)
-    if (this.def.id === 'beach') {
+    // Coastal mist veils (Vesper Shore & Space Beach)
+    if (this.def.id === 'beach' || this.def.id === 'space_beach') {
       const t = now * 0.001;
       for (const v of this.mistVeilPlanes) {
         v.mesh.position.y = v.baseY + Math.sin(t * 0.7 + v.phase) * 28;
         const mat = v.mesh.material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.1 + this.curIntensity * 0.24;
+        mat.opacity = 0.08 + this.curIntensity * 0.18;
       }
     }
 

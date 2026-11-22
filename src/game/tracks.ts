@@ -42,11 +42,34 @@ function spacePoints(): THREE.Vector3[] {
   ]);
 }
 
-type FeatureRow = [FeatureType, number, number, number?, number?];
+function spaceBeachPoints(): THREE.Vector3[] {
+  return xyz([
+    [-3400, 38, 2600],
+    [-2750, 34, 2100],
+    [-2150, 26, 1400],
+    [-1600, -35, 700],
+    [-1050, -104, 220],
+    [-350, -112, 480],
+    [350, -108, 1080],
+    [1000, -98, 1580],
+    [1650, -10, 1620],
+    [2150, 32, 1050],
+    [2100, 36, 150],
+    [1750, -32, -700],
+    [1480, -116, -1500],
+    [1950, -120, -2250],
+    [2750, -100, -2600],
+    [3450, 14, -2380],
+    [3950, 44, -1850],
+    [4350, 46, -1350]
+  ]);
+}
 
-function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[]): FeatureSpec[] {
-  const L = new THREE.CatmullRomCurve3(pts, true, 'centripetal').getLength();
-  return rows.map(([type, at, p, q = 0, r = 0]) => {
+type FeatureRow = [FeatureType, number, number, number?, number?, boolean?];
+
+function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[], isSprint = false): FeatureSpec[] {
+  const L = new THREE.CatmullRomCurve3(pts, !isSprint, 'centripetal').getLength();
+  return rows.map(([type, at, p, q = 0, r = 0, underwater = false]) => {
     switch (type) {
       case 'jump':
         return { type, at, w: p / L, h: q, gap: r / L };
@@ -59,7 +82,7 @@ function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[]): FeatureSpec[] {
       case 'corkscrew':
         return { type, at, w: p / L, narrow: 0.56, blend: 200 / L, turns: q || 1 };
       case 'tunnel':
-        return { type, at, w: p / L, height: q };
+        return { type, at, w: p / L, height: q, underwater };
     }
   });
 }
@@ -78,20 +101,20 @@ export const LEVELS: LevelDef[] = [
     desc: 'Skyscraper canyon circuit with AHWOO mega-gantries, twin 360° helix loops, and extended air jumps.',
     trackTrackTitle: 'SKYLINE OVERDRIVE',
     points: neonPoints(),
-    hw: 132,
+    hw: 96,
     obstacles: 18,
     scale: 1,
     features: planFeatures(neonPoints(), [
-      ['jump', 0.040, 380, 115, 760],
-      ['descent', 0.180, 740, 250],
+      ['jump', 0.040, 390, 110, 760],
+      ['descent', 0.180, 780, 165],
       ['loop', 0.260, 235],
-      ['hill', 0.345, 620, 75],
+      ['hill', 0.345, 660, 78],
       ['tunnel', 0.415, 860, 36],
-      ['corkscrew', 0.500, 1320, 1],
-      ['jump', 0.610, 390, 120, 790],
-      ['descent', 0.745, 700, 260],
-      ['loop', 0.810, 220],
-      ['jump', 0.870, 340, 108, 690]
+      ['corkscrew', 0.500, 1300, 1],
+      ['jump', 0.608, 370, 112, 720],
+      ['descent', 0.735, 720, 155],
+      ['loop', 0.805, 215],
+      ['jump', 0.875, 340, 102, 650]
     ]),
     look: {
       sky: 0x100a24,
@@ -104,13 +127,13 @@ export const LEVELS: LevelDef[] = [
       hemiGround: 0x33194d,
       hemiI: 1.35,
       sun: 0xffd296,
-      sunI: 1.9,
+      sunI: 1.85,
       rim: 0x00f0ff,
-      rimI: 0.9,
-      exposure: 1.04,
-      bloom: 0.62,
-      bloomRadius: 0.34,
-      bloomThreshold: 0.95
+      rimI: 0.85,
+      exposure: 1.02,
+      bloom: 0.46,
+      bloomRadius: 0.32,
+      bloomThreshold: 1.06
     },
     road: {
       base: '#0b1028',
@@ -134,20 +157,20 @@ export const LEVELS: LevelDef[] = [
     desc: 'Sunset coastal ribbon above bioluminescent emerald dunes, sweeping helix loop, and wide-air ramps.',
     trackTrackTitle: 'TIDELINE LUXURY',
     points: beachPoints(),
-    hw: 122,
+    hw: 92,
     obstacles: 16,
     scale: 1,
     features: planFeatures(beachPoints(), [
       ['hill', 0.025, 680, 68],
-      ['corkscrew', 0.105, 1300, 1],
-      ['jump', 0.215, 380, 115, 760],
-      ['descent', 0.355, 720, 250],
-      ['tunnel', 0.425, 820, 34],
-      ['loop', 0.505, 230],
-      ['descent', 0.595, 680, 220],
-      ['jump', 0.665, 380, 120, 780],
-      ['hill', 0.805, 620, 75],
-      ['corkscrew', 0.875, 1240, 1]
+      ['corkscrew', 0.100, 1250, 1],
+      ['jump', 0.215, 380, 110, 740],
+      ['descent', 0.355, 700, 150],
+      ['tunnel', 0.415, 780, 34],
+      ['loop', 0.505, 225],
+      ['descent', 0.588, 700, 145],
+      ['jump', 0.655, 370, 112, 740],
+      ['hill', 0.802, 640, 75],
+      ['corkscrew', 0.872, 1220, 1]
     ]),
     look: {
       sky: 0xffb7d9,
@@ -158,15 +181,15 @@ export const LEVELS: LevelDef[] = [
       ambientI: 0.85,
       hemiSky: 0xff9ecb,
       hemiGround: 0x2e8f63,
-      hemiI: 1.5,
+      hemiI: 1.45,
       sun: 0xffd0a8,
-      sunI: 2.0,
+      sunI: 1.9,
       rim: 0x67e8ff,
       rimI: 0.55,
-      exposure: 1.02,
-      bloom: 0.48,
-      bloomRadius: 0.42,
-      bloomThreshold: 1.0
+      exposure: 1.0,
+      bloom: 0.38,
+      bloomRadius: 0.36,
+      bloomThreshold: 1.08
     },
     road: {
       base: '#3c2460',
@@ -190,21 +213,21 @@ export const LEVELS: LevelDef[] = [
     desc: 'Orbital wormhole ring suspended between ringed gas giants, high-hang deep-space jumps, and zero-G loops.',
     trackTrackTitle: 'STARLIGHT APEX',
     points: spacePoints(),
-    hw: 114,
+    hw: 88,
     obstacles: 20,
     scale: 1,
     features: planFeatures(spacePoints(), [
-      ['hill', 0.025, 720, 110],
-      ['tunnel', 0.095, 780, 36],
-      ['descent', 0.165, 720, 300],
-      ['jump', 0.230, 380, 125, 800],
-      ['loop', 0.375, 235],
-      ['corkscrew', 0.455, 1300, 1],
-      ['hill', 0.565, 650, 120],
-      ['descent', 0.625, 740, 310],
-      ['jump', 0.690, 360, 118, 760],
-      ['tunnel', 0.830, 700, 36],
-      ['loop', 0.900, 220]
+      ['hill', 0.020, 680, 105],
+      ['tunnel', 0.085, 760, 36],
+      ['descent', 0.155, 720, 170],
+      ['jump', 0.220, 360, 114, 760],
+      ['loop', 0.375, 225],
+      ['corkscrew', 0.462, 1260, 1],
+      ['hill', 0.578, 640, 110],
+      ['descent', 0.630, 720, 170],
+      ['jump', 0.690, 360, 112, 740],
+      ['tunnel', 0.822, 660, 36],
+      ['loop', 0.902, 215]
     ]),
     look: {
       sky: 0x03040d,
@@ -217,13 +240,13 @@ export const LEVELS: LevelDef[] = [
       hemiGround: 0x241a44,
       hemiI: 1.0,
       sun: 0xfff0d0,
-      sunI: 1.8,
+      sunI: 1.75,
       rim: 0x9d7bff,
-      rimI: 0.9,
+      rimI: 0.85,
       exposure: 1.0,
-      bloom: 0.72,
-      bloomRadius: 0.44,
-      bloomThreshold: 0.95
+      bloom: 0.52,
+      bloomRadius: 0.38,
+      bloomThreshold: 1.06
     },
     road: {
       base: '#0a0d2c',
@@ -233,6 +256,62 @@ export const LEVELS: LevelDef[] = [
       centre: '#ffd5f4'
     },
     theme: { accent: 0x9d7bff, secondary: 0x31e8ff, wall: 0x8f7dff }
+  },
+  {
+    id: 'space_beach',
+    num: '04',
+    name: 'SPACE BEACH',
+    cn: '星海潜滩',
+    sub: 'POINT-TO-POINT SPRINT · UNDERWATER GLASS TUNNELS',
+    tagline: 'SPACE BEACH',
+    badge: 'SPRINT',
+    weatherBadge: 'COSMIC TIDE',
+    weatherTitle: 'COSMIC ABYSSAL TIDE // 星海潮汐',
+    desc: 'One-way point-to-point oceanic-cosmic sprint through transparent underwater glass tunnels teeming with sea life.',
+    trackTrackTitle: 'ABYSSAL HORIZON',
+    isSprint: true,
+    points: spaceBeachPoints(),
+    hw: 94,
+    obstacles: 14,
+    scale: 1,
+    features: planFeatures(
+      spaceBeachPoints(),
+      [
+        ['hill', 0.055, 580, 44],
+        ['tunnel', 0.228, 2550, 42, 0, true],
+        ['jump', 0.545, 380, 106, 720],
+        ['tunnel', 0.708, 2100, 44, 0, true],
+        ['hill', 0.905, 560, 42]
+      ],
+      true
+    ),
+    look: {
+      sky: 0x0a1c3c,
+      fog: 0x0d2b4e,
+      fogNear: 360,
+      fogFar: 4600,
+      ambient: 0x7bc2ea,
+      ambientI: 0.85,
+      hemiSky: 0x8df6ff,
+      hemiGround: 0x0d3658,
+      hemiI: 1.45,
+      sun: 0xffe4b8,
+      sunI: 1.85,
+      rim: 0x36f5d8,
+      rimI: 0.9,
+      exposure: 1.02,
+      bloom: 0.44,
+      bloomRadius: 0.34,
+      bloomThreshold: 1.08
+    },
+    road: {
+      base: '#0b223d',
+      edge: '#36f5d8',
+      edge2: '#f5c451',
+      lane: '#9ef9ff',
+      centre: '#ffdf88'
+    },
+    theme: { accent: 0x36f5d8, secondary: 0xf5c451, wall: 0x52f7e4 }
   }
 ];
 
@@ -246,7 +325,7 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
       const gap = f.gap ?? 0.055;
       const lip = f.at + f.w;
       const land = lip + gap;
-      const landLen = f.w * 1.85;
+      const landLen = f.w * 2.15;
       const deck = h * 0.14;
       const launchSlopeRatio = (gap / f.w) * 0.58;
       return {
@@ -266,17 +345,15 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
     let h = 0;
     for (const f of hills) {
       if (u >= f.at && u <= f.at + f.w) {
-        h += (f.h ?? 0) * 0.5 * (1 - Math.cos((Math.PI * (u - f.at)) / f.w));
+        h += (f.h ?? 0) * 0.5 * (1 - Math.cos((Math.PI * 2 * (u - f.at)) / f.w));
       }
     }
     for (const f of descents) {
       if (u < f.at || u > f.at + f.w) continue;
       const k = (u - f.at) / f.w;
       const fh = f.h ?? 0;
-      h +=
-        k < 0.68
-          ? fh * 0.5 * (1 - Math.cos(Math.PI * (k / 0.68)))
-          : fh * 0.5 * (1 + Math.cos(Math.PI * ((k - 0.68) / 0.32)));
+      // C-infinity smooth descent dip with balanced uphill recovery slope
+      h += fh * 0.5 * (1 - Math.cos(Math.PI * 2 * k));
     }
     for (const j of jumps) {
       if (u >= j.at && u < j.lip) {
@@ -298,9 +375,9 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
     for (const j of jumps) {
       if (u >= j.lip && u < j.land) {
         const k = (u - j.lip) / j.gap;
-        // Slightly fuller upper hang curve so airtime feels floaty and dramatic
+        // Smooth finite-slope quartic hang curve (eliminates infinite derivative kink at launch/landing)
         const arch = 4 * k * (1 - k);
-        return j.apex * Math.pow(arch, 0.88);
+        return j.apex * arch * (0.84 + 0.16 * arch);
       }
     }
     return 0;
@@ -309,36 +386,45 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
   return { value, isGap, arc, jumps };
 }
 
-function buildFrames(curve: THREE.CatmullRomCurve3, steps: number): { p: THREE.Vector3; t: THREE.Vector3; s: THREE.Vector3; up: THREE.Vector3 }[] {
+function buildFrames(
+  curve: THREE.CatmullRomCurve3,
+  steps: number,
+  closed: boolean
+): { p: THREE.Vector3; t: THREE.Vector3; s: THREE.Vector3; up: THREE.Vector3 }[] {
   const frames: { p: THREE.Vector3; t: THREE.Vector3; s: THREE.Vector3; up: THREE.Vector3 }[] = [];
   const up = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i <= steps; i++) {
-    const u = (i / steps) % 1;
+    const u = closed ? (i / steps) % 1 : Math.min(1, i / steps);
     const t = curve.getTangentAt(u);
     const p = curve.getPointAt(u);
     const s = i ? frames[i - 1].s.clone() : new THREE.Vector3().crossVectors(t, up);
     s.addScaledVector(t, -s.dot(t)).normalize();
     frames.push({ p, t, s, up: new THREE.Vector3().crossVectors(s, t).normalize() });
   }
-  const a = Math.atan2(
-    new THREE.Vector3().crossVectors(frames[frames.length - 1].s, frames[0].s).dot(frames[0].t),
-    frames[frames.length - 1].s.dot(frames[0].s)
-  );
-  frames.forEach((f, i) => {
-    f.s.applyAxisAngle(f.t, (a * i) / steps);
-    f.up = new THREE.Vector3().crossVectors(f.s, f.t).normalize();
-  });
+  if (closed) {
+    const a = Math.atan2(
+      new THREE.Vector3().crossVectors(frames[frames.length - 1].s, frames[0].s).dot(frames[0].t),
+      frames[frames.length - 1].s.dot(frames[0].s)
+    );
+    frames.forEach((f, i) => {
+      f.s.applyAxisAngle(f.t, (a * i) / steps);
+      f.up = new THREE.Vector3().crossVectors(f.s, f.t).normalize();
+    });
+  }
   return frames;
 }
 
 function auditTrack(curve: THREE.CatmullRomCurve3, steps: number): TrackAudit {
   const N = 360;
   const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < N; i++) pts.push(curve.getPointAt(i / N));
+  const closed = curve.closed;
+  for (let i = 0; i < N; i++) pts.push(curve.getPointAt(closed ? i / N : i / (N - 1)));
   let minRadius = Infinity;
   const vAB = new THREE.Vector3();
   const vCA = new THREE.Vector3();
-  for (let i = 0; i < N; i++) {
+  const startIdx = closed ? 0 : 1;
+  const endIdx = closed ? N : N - 1;
+  for (let i = startIdx; i < endIdx; i++) {
     const a = pts[(i - 1 + N) % N];
     const b = pts[i];
     const c = pts[(i + 1) % N];
@@ -358,9 +444,10 @@ function auditTrack(curve: THREE.CatmullRomCurve3, steps: number): TrackAudit {
     return o1 * o2 < 0 && o3 * o4 < 0;
   };
   let selfIntersections = 0;
-  for (let i = 0; i < N; i++) {
-    for (let j = i + 2; j < N; j++) {
-      if (i === 0 && j === N - 1) continue;
+  const segCount = closed ? N : N - 1;
+  for (let i = 0; i < segCount; i++) {
+    for (let j = i + 2; j < segCount; j++) {
+      if (closed && i === 0 && j === N - 1) continue;
       if (segHit(pts[i], pts[(i + 1) % N], pts[j], pts[(j + 1) % N])) selfIntersections++;
     }
   }
@@ -368,32 +455,37 @@ function auditTrack(curve: THREE.CatmullRomCurve3, steps: number): TrackAudit {
     minRadius: Number.isFinite(minRadius) ? minRadius : 0,
     selfIntersections,
     sampled: N,
-    closed: curve.closed,
+    closed,
     steps
   };
 }
 
 export function buildTrack(def: LevelDef): TrackData {
+  const isSprint = !!def.isSprint;
+  const closed = !isSprint;
   const scale = def.scale || 1;
   const pts = scale === 1 ? def.points : def.points.map((p) => new THREE.Vector3(p.x * scale, p.y, p.z * scale));
-  const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
+  const curve = new THREE.CatmullRomCurve3(pts, closed, 'centripetal');
   const len = curve.getLength();
-  const steps = Math.max(800, Math.round(len / 5.0));
-  const frames = buildFrames(curve, steps);
+  const steps = Math.max(1200, Math.round(len / 3.4));
+  const frames = buildFrames(curve, steps, closed);
   const elev = makeElevation(def.features);
   const hw = def.hw;
   const audit = auditTrack(curve, steps);
+
+  const normU = (u0: number): number =>
+    closed ? ((u0 % 1) + 1) % 1 : Math.max(0, Math.min(1, u0));
 
   const tapers = def.features
     .filter((f) => f.type === 'loop' || f.type === 'corkscrew')
     .map((f) => ({
       at: f.at - (f.blend ?? 0.018),
       to: f.at + f.w + (f.blend ?? 0.018),
-      min: f.narrow ?? 0.45
+      min: f.narrow ?? 0.4
     }));
 
   function widthAt(u0: number): number {
-    const u = ((u0 % 1) + 1) % 1;
+    const u = normU(u0);
     let w = 1;
     for (const t of tapers) {
       if (u < t.at || u > t.to) continue;
@@ -428,60 +520,83 @@ export function buildTrack(def: LevelDef): TrackData {
     rolls.some((f) => u >= f.at - 0.01 && u <= f.at + f.w + 0.01) ||
     tunnels.some((f) => u >= f.at - 0.008 && u <= f.at + f.w + 0.008);
 
-  function fr(u0: number): TrackFrame {
-    const u = ((u0 % 1) + 1) % 1;
+  function baseFrameAt(u0: number) {
+    const u = normU(u0);
     const x = u * steps;
     const i = Math.min(steps - 1, Math.floor(x));
     const f = x - i;
     const a = frames[i];
     const b = frames[i + 1];
-    const raw = curve.getPointAt(u);
-    const h = elev.value(u);
-    let t = a.t.clone().lerp(b.t, f).normalize();
-    let s = a.s.clone().lerp(b.s, f).normalize();
-    let up = a.up.clone().lerp(b.up, f).normalize();
-    const pos = raw.clone().addScaledVector(up, h);
+    return {
+      u,
+      raw: curve.getPointAt(u),
+      h: elev.value(u),
+      t: a.t.clone().lerp(b.t, f).normalize(),
+      s: a.s.clone().lerp(b.s, f).normalize(),
+      up: a.up.clone().lerp(b.up, f).normalize()
+    };
+  }
 
+  function fr(u0: number): TrackFrame {
+    const base = baseFrameAt(u0);
+    const { u, raw, h } = base;
+    const pos = raw.clone().addScaledVector(base.up, h);
+    let t = base.t.clone();
+    let s = base.s.clone();
+    let up = base.up.clone();
+
+    let inLoop = false;
     for (const L of loops) {
       if (u < L.at || u > L.at + L.w) continue;
-      // Ensure lateral helical offset exceeds the tapered loop road width (2 * hw * narrow)
-      // so the ascending and descending decks have wide open sky clearance and never clip.
-      const narrow = L.narrow ?? 0.36;
+      inLoop = true;
+      const narrow = L.narrow ?? 0.4;
       const loopFullWidth = 2 * hw * narrow;
-      const D = Math.max(L.radius * 0.54, (loopFullWidth + 56) / 1.414);
+      const D = Math.max(L.radius * 0.65, (loopFullWidth + 96) / 1.414);
       const lpAt = (uu: number) => {
         const clampedU = Math.max(L.at, Math.min(L.at + L.w, uu));
         const k = (clampedU - L.at) / L.w;
         const ang = k * Math.PI * 2;
-        const xx = clampedU * steps;
-        const ii = Math.min(steps - 1, Math.floor(xx));
-        const ff = xx - ii;
-        const fa = frames[ii];
-        const fb = frames[ii + 1];
-        const tt = fa.t.clone().lerp(fb.t, ff).normalize();
-        const ss = fa.s.clone().lerp(fb.s, ff).normalize();
-        const uv = fa.up.clone().lerp(fb.up, ff).normalize();
-        const baseH = elev.value(clampedU);
-        return curve
-          .getPointAt(((clampedU % 1) + 1) % 1)
-          .addScaledVector(uv, baseH)
-          .addScaledVector(tt, L.radius * Math.sin(ang))
-          .addScaledVector(uv, L.radius * (1 - Math.cos(ang)))
-          .addScaledVector(ss, D * Math.sin(ang) * Math.sin(Math.PI * k));
+        const bf = baseFrameAt(clampedU);
+        const lateralEnv = Math.pow(Math.sin(Math.PI * k), 1.15);
+        return bf.raw
+          .clone()
+          .addScaledVector(bf.up, bf.h)
+          .addScaledVector(bf.t, L.radius * Math.sin(ang))
+          .addScaledVector(bf.up, L.radius * (1 - Math.cos(ang)))
+          .addScaledVector(bf.s, D * Math.sin(ang) * lateralEnv);
       };
-      const d = 0.00045;
+      const d = 0.00055;
       const uA = u - d;
       const uB = u + d;
       const lp = lpAt(u);
-      const pA = uA < L.at ? curve.getPointAt(((uA % 1) + 1) % 1).addScaledVector(up, elev.value(((uA % 1) + 1) % 1)) : lpAt(uA);
-      const pB = uB > L.at + L.w ? curve.getPointAt(((uB % 1) + 1) % 1).addScaledVector(up, elev.value(((uB % 1) + 1) % 1)) : lpAt(uB);
+      const bA = baseFrameAt(uA);
+      const bB = baseFrameAt(uB);
+      const pA = uA < L.at ? bA.raw.clone().addScaledVector(bA.up, bA.h) : lpAt(uA);
+      const pB = uB > L.at + L.w ? bB.raw.clone().addScaledVector(bB.up, bB.h) : lpAt(uB);
       const lt = pB.sub(pA).normalize();
-      const lu = new THREE.Vector3().crossVectors(s, lt).normalize();
+      const lu = new THREE.Vector3().crossVectors(base.s, lt).normalize();
       pos.copy(lp);
       t = lt;
       up = lu;
       s = new THREE.Vector3().crossVectors(t, up).normalize();
       up = new THREE.Vector3().crossVectors(s, t).normalize();
+      break;
+    }
+
+    if (!inLoop) {
+      const dSlope = 0.00045;
+      const uA = normU(u - dSlope);
+      const uB = normU(u + dSlope);
+      if (uB > uA + 1e-6 || closed) {
+        const bA = baseFrameAt(uA);
+        const bB = baseFrameAt(uB);
+        const pA = bA.raw.clone().addScaledVector(bA.up, bA.h);
+        const pB = bB.raw.clone().addScaledVector(bB.up, bB.h);
+        t = pB.sub(pA).normalize();
+        s = base.s.clone().addScaledVector(t, -base.s.dot(t)).normalize();
+        up = new THREE.Vector3().crossVectors(s, t).normalize();
+        s = new THREE.Vector3().crossVectors(t, up).normalize();
+      }
     }
 
     for (const R of rolls) {

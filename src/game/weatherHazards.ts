@@ -50,7 +50,10 @@ const TRIGGER_HAZARD_TAG: Record<string, string> = {
   coastal_breeze: 'HAZARDS CLEAR',
   solar_flare: 'HAZARDS: ORBITAL DEBRIS + FOG',
   ion_storm: 'HAZARD: ENERGY-DRAIN FOG',
-  cosmic_drift: 'HAZARDS CLEAR'
+  cosmic_drift: 'HAZARDS CLEAR',
+  bioluminescent_tide: 'HAZARD: BIOLUMINESCENT MIST',
+  cosmic_monsoon: 'HAZARDS: CORAL DEBRIS + MIST',
+  starlight_breeze: 'HAZARDS CLEAR'
 };
 
 export function getWeatherHazardTag(phaseId: string): string {
@@ -75,7 +78,7 @@ export class WeatherHazardManager {
     const fogColorStr =
       def.id === 'space'
         ? 'rgba(170, 110, 255, 0.85)'
-        : def.id === 'beach'
+        : def.id === 'beach' || def.id === 'space_beach'
           ? 'rgba(89, 240, 216, 0.82)'
           : 'rgba(0, 240, 255, 0.82)';
     this.fogTex = radialTexture(fogColorStr);
@@ -99,7 +102,7 @@ export class WeatherHazardManager {
 
     // Shared PBR & emissive materials for composite debris
     const hullMat = new THREE.MeshStandardMaterial({
-      color: this.def.id === 'beach' ? 0x26444b : 0x1a2138,
+      color: this.def.id === 'beach' || this.def.id === 'space_beach' ? 0x26444b : 0x1a2138,
       metalness: 0.82,
       roughness: 0.28,
       flatShading: true
@@ -110,7 +113,7 @@ export class WeatherHazardManager {
       roughness: 0.42
     });
     const debrisGlowMat = new THREE.MeshBasicMaterial({
-      color: this.def.id === 'space' ? 0xffae42 : this.def.id === 'beach' ? 0x59f0d8 : 0xff2e93,
+      color: this.def.id === 'space' ? 0xffae42 : this.def.id === 'beach' || this.def.id === 'space_beach' ? 0x36f5d8 : 0xff2e93,
       toneMapped: false
     });
     const debrisRingMat = new THREE.MeshBasicMaterial({
@@ -415,6 +418,16 @@ export class WeatherHazardManager {
           createDebrisSlot(idCounter++, u, sign, ['tidal_squall']);
         }
       });
+    } else if (this.def.id === 'space_beach') {
+      // Space Beach: Coral debris during Cosmic Monsoon + Bioluminescent mist zones along above-water coastal spans
+      candidateUs.forEach((u, idx) => {
+        const sign = idx % 2 === 0 ? -1 : 1;
+        if (idx % 2 === 0) {
+          createFogSlot(idCounter++, u, sign, ['bioluminescent_tide', 'cosmic_monsoon']);
+        } else {
+          createDebrisSlot(idCounter++, u, sign, ['cosmic_monsoon']);
+        }
+      });
     } else {
       // Event Horizon: Temporary energy-draining fog zones (Solar Flare / Ion Storm) + Orbital debris (Solar Flare)
       candidateUs.forEach((u, idx) => {
@@ -509,7 +522,7 @@ export class WeatherHazardManager {
           outResult.alertLabel =
             this.def.id === 'space'
               ? 'ORBITAL DEBRIS IMPACT // 轨道残骸'
-              : this.def.id === 'beach'
+              : this.def.id === 'beach' || this.def.id === 'space_beach'
                 ? 'REEF DEBRIS IMPACT // 礁石残骸'
                 : 'STORM DEBRIS IMPACT // 浮空残骸';
           outResult.alertKind = 'debris';
