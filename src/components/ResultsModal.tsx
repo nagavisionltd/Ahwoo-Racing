@@ -56,8 +56,20 @@ export const ResultsModal: React.FC<ResultsModalProps> = ({
           >
             FINISH · P{hud.rank}
           </h1>
-          <div className="text-[10px] tracking-[0.18em] text-[#b9c8e8]">
-            {lvl.name} · {ship.name}
+          <div className="text-[10px] tracking-[0.18em] text-[#b9c8e8] flex flex-wrap items-center gap-2">
+            <span>
+              {lvl.name} · {ship.name}
+            </span>
+            {hud.ghost.isNewBestTime && (
+              <span className="bg-[#36f5d8] text-[#050712] px-1.5 py-0.5 text-[8px] font-black tracking-[0.16em]">
+                NEW BEST TIME
+              </span>
+            )}
+            {hud.ghost.isNewBestTakedowns && (
+              <span className="bg-[#ff2e93] text-white px-1.5 py-0.5 text-[8px] font-black tracking-[0.16em]">
+                NEW KO RECORD
+              </span>
+            )}
           </div>
         </div>
 
@@ -140,16 +152,23 @@ export const ResultsModal: React.FC<ResultsModalProps> = ({
             </div>
             <div className="bg-[#050712]/78 border border-white/15 px-3 py-2 text-center">
               <div className="text-[8px] tracking-[0.18em] text-[#8ea2ca]">
-                {lvl.isSprint ? 'MODE' : 'BEST LAP'}
+                {hud.ghost.bestTimeSec !== null ? 'CIRCUIT BEST' : lvl.isSprint ? 'MODE' : 'BEST LAP'}
               </div>
               <div className="text-base md:text-lg font-black text-[#00f0ff]">
-                {lvl.isSprint ? 'SPRINT' : hud.bestLapSec !== null ? formatRaceTime(hud.bestLapSec) : '--:--'}
+                {hud.ghost.bestTimeSec !== null
+                  ? formatRaceTime(hud.ghost.bestTimeSec)
+                  : lvl.isSprint
+                    ? 'SPRINT'
+                    : hud.bestLapSec !== null
+                      ? formatRaceTime(hud.bestLapSec)
+                      : '--:--'}
               </div>
             </div>
             <div className="bg-[#050712]/78 border border-white/15 px-3 py-2 text-center">
-              <div className="text-[8px] tracking-[0.18em] text-[#8ea2ca]">DRIFT</div>
+              <div className="text-[8px] tracking-[0.18em] text-[#8ea2ca]">DRIFT / KO</div>
               <div className="text-base md:text-lg font-black text-[#ff4d94]">
                 {hud.drift.totalScore.toLocaleString()}
+                <span className="text-xs text-[#f5c451] ml-1.5">/{hud.takedowns}</span>
               </div>
             </div>
           </div>

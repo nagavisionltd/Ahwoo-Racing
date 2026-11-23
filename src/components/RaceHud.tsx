@@ -171,6 +171,23 @@ export const RaceHud: React.FC<RaceHudProps> = ({
                         {entry.rank}
                       </span>
                       <span className="font-mono text-[#9be8ff] shrink-0">{entry.racerId}</span>
+                      {!entry.isPlayer && entry.archetype && (
+                        <span
+                          className={`text-[7px] font-black px-1 border shrink-0 ${
+                            entry.archetype === 'enforcer'
+                              ? 'border-[#ff2e63]/60 text-[#ff6b8f]'
+                              : entry.archetype === 'slipstream'
+                                ? 'border-[#00f0ff]/60 text-[#5ceeff]'
+                                : 'border-[#f5c451]/60 text-[#f5c451]'
+                          }`}
+                        >
+                          {entry.archetype === 'enforcer'
+                            ? 'BLK'
+                            : entry.archetype === 'slipstream'
+                              ? 'SPD'
+                              : 'TAC'}
+                        </span>
+                      )}
                       <span className="truncate tracking-[0.06em]">{entry.teamName}</span>
                     </div>
                     <span className="tabular-nums text-[8px] text-white/50 shrink-0">
@@ -182,12 +199,24 @@ export const RaceHud: React.FC<RaceHudProps> = ({
             )}
           </div>
 
-          {/* Top-Right: Slim Timer, Weather Micro-Status & Interactive Controls */}
+          {/* Top-Right: Slim Timer, Ghost Split, Weather Micro-Status & Interactive Controls */}
           <div className="flex flex-col items-end gap-1.5">
             <div className="bg-[#050712]/62 border border-white/12 px-3 py-1.5 flex items-center gap-3">
               <div className="text-right">
-                <div className="text-base md:text-lg font-black tracking-[0.08em] text-white tabular-nums leading-none">
-                  {formatRaceTime(hud.timeSec)}
+                <div className="flex items-baseline justify-end gap-2">
+                  {hud.ghost.active && hud.ghost.deltaSec !== null && (
+                    <span
+                      className={`text-[10px] font-black tabular-nums tracking-[0.08em] ${
+                        hud.ghost.deltaSec <= 0 ? 'text-[#36f5d8]' : 'text-[#ff6b8f]'
+                      }`}
+                    >
+                      GHOST {hud.ghost.deltaSec <= 0 ? '' : '+'}
+                      {hud.ghost.deltaSec.toFixed(2)}s
+                    </span>
+                  )}
+                  <div className="text-base md:text-lg font-black tracking-[0.08em] text-white tabular-nums leading-none">
+                    {formatRaceTime(hud.timeSec)}
+                  </div>
                 </div>
                 <div className="text-[8px] tracking-[0.18em] text-[#00f0ff] mt-0.5">
                   {def.name}
@@ -295,7 +324,57 @@ export const RaceHud: React.FC<RaceHudProps> = ({
           </div>
         )}
 
-        {/* Bottom Perimeter: Contextual Drift & Holographic Minimap (Left) · Control Hint (Center) · Speed/Core (Right) */}
+        {/* Randomized Path-Blocked Descending Spiral Ring-Switch Warning */}
+        {hud.spiralWarning.active && (
+          <div className="fixed left-1/2 top-[4.6rem] -translate-x-1/2 bg-[#1e0812]/90 border-2 border-[#f5c451] px-4 py-1.5 flex items-center gap-3 shadow-[0_0_24px_rgba(255,66,91,0.38)]">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-[#ff425b]" />
+            <div className="flex flex-col leading-tight">
+              <div className="text-[10px] font-black tracking-[0.2em] text-[#ff425b]">
+                PATH BLOCKED // {hud.spiralWarning.blockedRing} RING · {hud.spiralWarning.spiralName}
+              </div>
+              <div className="text-xs font-black tracking-[0.18em] text-[#f5c451] flex items-center gap-2">
+                <span>
+                  {hud.spiralWarning.switchDir === 'LEFT' ? '◀ SWITCH LEFT' : 'SWITCH RIGHT ▶'} ·{' '}
+                  {hud.spiralWarning.safeRing} RING OPEN
+                </span>
+                <span className="text-[10px] text-[#00f0ff] tabular-nums">
+                  {Math.max(1, hud.spiralWarning.distanceM)}M
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Wrecked / Hull Critical Alert */}
+        {hud.wrecked && (
+          <div className="fixed left-1/2 top-24 -translate-x-1/2 bg-[#2a0712]/92 border-2 border-[#ff2e55] px-5 py-2 flex items-center gap-2.5 text-xs font-black tracking-[0.22em] text-white">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-[#ff2e55]" />
+            <span>HULL DESTROYED // REDEPLOYING CHASSIS...</span>
+          </div>
+        )}
+
+        {/* Wrong-Direction Crash Spinout Alert */}
+        {hud.wrongWay && !hud.wrecked && (
+          <div className="fixed left-1/2 top-24 -translate-x-1/2 bg-[#2b0b08]/92 border-2 border-[#f5c451] px-5 py-2 flex items-center gap-2.5 text-xs font-black tracking-[0.2em] text-[#f5c451]">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-[#ff425b]" />
+            <span>WRONG WAY // STEER LEFT OR RIGHT TO TURN AROUND</span>
+          </div>
+        )}
+
+        {/* Exposed Unbarriered Track Section Warning */}
+        {hud.noBarriersActive &&
+          !hud.hazardAlert.active &&
+          !hud.spiralWarning.active &&
+          !hud.wrongWay &&
+          !hud.wrecked &&
+          !(showProxEdges && prox.intensity > 0.32) && (
+            <div className="fixed left-1/2 top-12 -translate-x-1/2 -skew-x-12 bg-[#260812]/82 border border-[#ff425b] px-3 py-0.5 flex items-center gap-1.5 text-[9px] font-black tracking-[0.18em] text-[#ffb8c2]">
+              <AlertTriangle className="w-3 h-3 shrink-0 text-[#ff425b]" />
+              <span>NO BARRIERS // EXPOSED EDGE</span>
+            </div>
+          )}
+
+        {/* Bottom Perimeter: Contextual Drift & Holographic Minimap (Left) · Control Hint (Center) · Speed/Core/Combat (Right) */}
         <div className="flex items-end justify-between gap-4">
           {/* Bottom-Left: Holographic Minimap + Contextual Drift Meter */}
           <div className="flex flex-col items-start gap-1.5 shrink-0">
@@ -339,48 +418,128 @@ export const RaceHud: React.FC<RaceHudProps> = ({
           </div>
 
           {/* Bottom-Center: Minimal control hint */}
-          <div className="flex-1 flex flex-col items-center gap-1 max-w-md mx-auto">
-            <div className="hidden md:block text-[8px] tracking-[0.18em] text-white/40 text-center">
-              WASD DRIVE · SHIFT DRIFT · SPACE OVERDRIVE · V WEATHER · R RADIO · M AUDIO
+          <div className="flex-1 flex flex-col items-center gap-1 max-w-lg mx-auto">
+            <div className="hidden md:block text-[8px] tracking-[0.16em] text-white/45 text-center">
+              WASD DRIVE · SHIFT DRIFT · SPACE BOOST · Q/E NUDGE · F 360° SPIN · V WEATHER · R RADIO
             </div>
           </div>
 
-        {/* Bottom-Right: Forza/GT-Style Peripheral Velocity & Energy Cluster */}
-        <div className="bg-[#050712]/65 border border-white/14 px-3.5 py-2 min-w-[184px] md:min-w-[206px] text-right">
-          <div className="flex items-baseline justify-end gap-1.5">
-            <span
-              className={`text-3xl md:text-4xl font-black italic leading-none tabular-nums ${
-                hud.isBoosting ? 'text-[#f5c451]' : 'text-white'
+        {/* Bottom-Right: Slipstream/Risk Rail + Combat Attack Telemetry + Peripheral Velocity & Core Cluster */}
+        <div className="flex flex-col items-end gap-1.5">
+          {hud.onRiskRail && (
+            <div className="bg-[#050712]/84 border border-[#f5c451] px-2.5 py-0.5 text-[9px] font-black tracking-[0.18em] text-[#f5c451]">
+              RISK RAIL SHORTCUT · +15% SPD
+            </div>
+          )}
+
+          {(hud.drafting.active || hud.drafting.slingshotReady) && (
+            <div
+              className={`bg-[#050712]/82 border px-2.5 py-1 min-w-[184px] ${
+                hud.drafting.slingshotReady ? 'border-[#36f5d8]' : 'border-[#00f0ff]/60'
               }`}
             >
-              {hud.speedKmh}
-            </span>
-            <span className="text-[10px] font-bold tracking-[0.14em] text-[#00f0ff]">KM/H</span>
-          </div>
+              <div className="flex items-center justify-between gap-2 text-[8px] font-black tracking-[0.16em] tabular-nums">
+                <span className={hud.drafting.slingshotReady ? 'text-[#36f5d8]' : 'text-[#00f0ff]'}>
+                  {hud.drafting.slingshotReady
+                    ? 'SLINGSHOT READY [Q/E]'
+                    : `SLIPSTREAM ${hud.drafting.targetId || ''}`}
+                </span>
+                <span className="text-white/80">
+                  {hud.drafting.active ? `${hud.drafting.distM}M` : 'MAX'}
+                </span>
+              </div>
+              <div className="h-1 w-full bg-black/70 mt-1 overflow-hidden">
+                <div
+                  className="h-full transition-[width] duration-75"
+                  style={{
+                    width: `${Math.round((hud.drafting.slingshotReady ? 1 : hud.drafting.intensity) * 100)}%`,
+                    background: hud.drafting.slingshotReady
+                      ? 'linear-gradient(90deg, #00f0ff, #36f5d8)'
+                      : 'linear-gradient(90deg, #299eff, #00f0ff)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
-          <div className="flex gap-0.5 h-1 w-full my-1.5">
-            {Array.from({ length: 12 }).map((_, idx) => (
-              <div
-                key={idx}
-                className={`tach-pip ${idx < litCount ? 'lit' : ''} ${
-                  idx < litCount && idx >= 9 ? 'hot' : ''
-                }`}
-              />
-            ))}
-          </div>
+          {hud.combatTag && (
+            <div className="bg-[#050712]/82 border border-[#f5c451]/70 px-2.5 py-0.5 text-[9px] font-black tracking-[0.18em] text-[#f5c451]">
+              {hud.combatTag}
+            </div>
+          )}
 
-          <div className="flex items-center justify-between text-[8px] tracking-[0.16em] text-[#9be8ff] mb-1">
-            <span>{hud.isBoosting ? 'OVERDRIVE' : hud.isAirborne ? 'AIRBORNE' : 'CORE'}</span>
-            <span className="tabular-nums text-white font-bold">{Math.round(hud.energy * 100)}%</span>
-          </div>
-          <div className="h-1.5 w-full bg-black/70 border border-[#00f0ff]/45 -skew-x-12 overflow-hidden">
+          <div className="flex items-center gap-1.5 text-[8px] font-black tracking-[0.14em]">
+            <div className="bg-[#050712]/68 border border-white/15 px-2 py-1 text-[#d8e6ff] tabular-nums">
+              KO <span className="text-[#f5c451]">{hud.takedowns}</span>
+            </div>
             <div
-              className="h-full transition-[width] duration-75"
-              style={{
-                width: `${Math.round(hud.energy * 100)}%`,
-                background: 'linear-gradient(90deg, #ff2e93, #00f0ff 60%, #f5c451)'
-              }}
-            />
+              className={`bg-[#050712]/68 border px-2 py-1 tabular-nums ${
+                hud.nudgeCooldown <= 0
+                  ? 'border-[#00f0ff]/65 text-[#00f0ff]'
+                  : 'border-white/10 text-white/45'
+              }`}
+            >
+              [Q/E] NUDGE {hud.nudgeCooldown > 0 ? `${hud.nudgeCooldown.toFixed(1)}s` : 'RDY'}
+            </div>
+            <div
+              className={`bg-[#050712]/68 border px-2 py-1 tabular-nums ${
+                hud.spinActive
+                  ? 'border-[#f5c451] text-[#f5c451]'
+                  : hud.spinCooldown <= 0
+                    ? 'border-[#ff2e93]/70 text-[#ff73b9]'
+                    : 'border-white/10 text-white/45'
+              }`}
+            >
+              [F] SPIN {hud.spinCooldown > 0 ? `${hud.spinCooldown.toFixed(1)}s` : 'RDY'}
+            </div>
+          </div>
+
+          <div className="bg-[#050712]/65 border border-white/14 px-3.5 py-2 min-w-[184px] md:min-w-[206px] text-right">
+            <div className="flex items-baseline justify-end gap-1.5">
+              <span
+                className={`text-3xl md:text-4xl font-black italic leading-none tabular-nums ${
+                  hud.isBoosting ? 'text-[#f5c451]' : 'text-white'
+                }`}
+              >
+                {hud.speedKmh}
+              </span>
+              <span className="text-[10px] font-bold tracking-[0.14em] text-[#00f0ff]">KM/H</span>
+            </div>
+
+            <div className="flex gap-0.5 h-1 w-full my-1.5">
+              {Array.from({ length: 12 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className={`tach-pip ${idx < litCount ? 'lit' : ''} ${
+                    idx < litCount && idx >= 9 ? 'hot' : ''
+                  }`}
+                />
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between text-[8px] tracking-[0.16em] text-[#9be8ff] mb-1">
+              <span>
+                {hud.wrecked
+                  ? 'WRECKED'
+                  : hud.isBoosting
+                    ? 'OVERDRIVE'
+                    : hud.drafting.active
+                      ? 'SLIPSTREAM'
+                      : hud.isAirborne
+                        ? 'AIRBORNE'
+                        : 'HULL CORE'}
+              </span>
+              <span className="tabular-nums text-white font-bold">{Math.round(hud.energy * 100)}%</span>
+            </div>
+            <div className="h-1.5 w-full bg-black/70 border border-[#00f0ff]/45 -skew-x-12 overflow-hidden">
+              <div
+                className="h-full transition-[width] duration-75"
+                style={{
+                  width: `${Math.round(hud.energy * 100)}%`,
+                  background: 'linear-gradient(90deg, #ff2e93, #00f0ff 60%, #f5c451)'
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>

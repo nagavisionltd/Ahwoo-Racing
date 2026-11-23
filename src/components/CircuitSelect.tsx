@@ -1,7 +1,9 @@
 import React from 'react';
 import { Trophy } from 'lucide-react';
+import { loadRecordsSummary } from '../game/records';
 import { LEVELS } from '../game/tracks';
 import type { RaceMode } from '../game/types';
+import { formatRaceTime } from './RaceHud';
 import { IonStormIcon, NeonRainIcon, SolarFlareIcon } from './WeatherIcons';
 
 interface CircuitSelectProps {
@@ -29,6 +31,7 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
 }) => {
   const activeDef = LEVELS[previewLevelIdx] || LEVELS[0];
   const isGp = raceMode === 'grand_prix';
+  const records = loadRecordsSummary();
 
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-between p-4 md:p-5 pointer-events-none bg-gradient-to-t from-[#050712]/80 via-transparent to-[#050712]/35">
@@ -44,7 +47,7 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
             </div>
             <div className="font-kanji text-[9px] tracking-[0.16em] text-[#f5c451]">
               {isGp
-                ? '大奖赛四轮锦标赛 · CUMULATIVE POINTS CUP'
+                ? `大奖赛${LEVELS.length}轮锦标赛 · CUMULATIVE POINTS CUP`
                 : '选择赛道 · HOVER TO LIVE SCOUT'}
             </div>
           </div>
@@ -69,12 +72,20 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
             }`}
           >
             <Trophy className="w-3 h-3 shrink-0" />
-            <span>GRAND PRIX · 4 ROUNDS</span>
+            <span>GRAND PRIX · {LEVELS.length} ROUNDS</span>
           </button>
         </div>
 
-        <div className="bg-[#050712]/65 border border-[#00f0ff]/40 px-3 py-1 text-[9px] tracking-[0.16em] text-[#9fdfff] hidden sm:block">
-          SCOUT · <b className="text-white">{activeDef.name}</b>
+        <div className="flex items-center gap-2">
+          {records.gpChampionships > 0 && (
+            <div className="bg-[#050712]/72 border border-[#f5c451]/60 px-2.5 py-1 text-[9px] font-black tracking-[0.14em] text-[#f5c451] flex items-center gap-1">
+              <Trophy className="w-3 h-3 shrink-0" />
+              <span>CUPS ×{records.gpChampionships}</span>
+            </div>
+          )}
+          <div className="bg-[#050712]/65 border border-[#00f0ff]/40 px-3 py-1 text-[9px] tracking-[0.16em] text-[#9fdfff] hidden sm:block">
+            SCOUT · <b className="text-white">{activeDef.name}</b>
+          </div>
         </div>
       </div>
 
@@ -84,7 +95,7 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
           <div className="bg-[#060a18]/86 border border-[#f5c451]/60 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-[9px] tracking-[0.15em]">
             <div className="flex items-center gap-2 text-[#f5c451] font-black">
               <Trophy className="w-3.5 h-3.5 shrink-0" />
-              <span>4-ROUND CHAMPIONSHIP SERIES</span>
+              <span>{LEVELS.length}-ROUND CHAMPIONSHIP SERIES</span>
             </div>
             <div className="text-[#cfe0ff]">
               SCORING: <b className="text-[#f5c451]">1ST +25</b> · <b className="text-[#00f0ff]">2ND +18</b> ·{' '}
@@ -93,11 +104,12 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {LEVELS.map((lvl, idx) => {
             const isSelected = idx === selectedLevel;
             const isPreviewing = idx === previewLevelIdx;
             const accentHex = '#' + lvl.theme.accent.toString(16).padStart(6, '0');
+            const rec = records.circuits[lvl.id];
             return (
               <button
                 key={lvl.id}
@@ -131,12 +143,20 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
                   <span className="text-xl font-black italic text-white">
                     {isGp ? `R${idx + 1}` : lvl.num}
                   </span>
-                  <span
-                    className="text-[8px] font-black tracking-[0.18em] px-1.5 py-0.5 text-[#050712]"
-                    style={{ backgroundColor: isGp ? '#f5c451' : accentHex }}
-                  >
-                    {isGp ? `ROUND ${idx + 1}/4` : lvl.badge}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {rec && rec.gpTrophies > 0 && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 border border-[#f5c451]/70 text-[#f5c451] inline-flex items-center gap-0.5">
+                        <Trophy className="w-2.5 h-2.5" />
+                        <span>{rec.gpTrophies}</span>
+                      </span>
+                    )}
+                    <span
+                      className="text-[8px] font-black tracking-[0.18em] px-1.5 py-0.5 text-[#050712]"
+                      style={{ backgroundColor: isGp ? '#f5c451' : accentHex }}
+                    >
+                      {isGp ? `ROUND ${idx + 1}/${LEVELS.length}` : lvl.badge}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-xs font-black tracking-[0.08em] text-white">
                   {lvl.name}
@@ -155,7 +175,7 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
                     {Math.round(lvl.hw * 2)}M
                   </span>
                   <span className="border border-[#f5c451]/45 text-[#f5c451] px-1.5 py-0.5 inline-flex items-center gap-1">
-                    {lvl.id === 'neon' ? (
+                    {lvl.id === 'neon' || lvl.id === 'vortex' ? (
                       <NeonRainIcon className="w-3 h-3 shrink-0" electric />
                     ) : lvl.id === 'beach' || lvl.id === 'space_beach' ? (
                       <IonStormIcon className="w-3 h-3 shrink-0" mistPalette />
@@ -164,6 +184,16 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
                     )}
                     <span>{lvl.weatherBadge}</span>
                   </span>
+                  {rec?.bestTimeSec !== null && rec?.bestTimeSec !== undefined && (
+                    <span className="border border-[#36f5d8]/50 text-[#36f5d8] px-1.5 py-0.5 tabular-nums">
+                      PB {formatRaceTime(rec.bestTimeSec)}
+                    </span>
+                  )}
+                  {rec && rec.bestTakedowns > 0 && (
+                    <span className="border border-[#ff2e93]/50 text-[#ff73b9] px-1.5 py-0.5 tabular-nums">
+                      KO {rec.bestTakedowns}
+                    </span>
+                  )}
                 </div>
               </button>
             );

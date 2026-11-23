@@ -28,6 +28,8 @@ const INITIAL_HUD: HudSnapshot = {
   bestLapSec: null,
   isBoosting: false,
   isAirborne: false,
+  onRiskRail: false,
+  noBarriersActive: false,
   muted: false,
   countdownText: '3',
   splitText: '',
@@ -38,7 +40,7 @@ const INITIAL_HUD: HudSnapshot = {
   grandPrix: {
     active: false,
     roundIdx: 0,
-    totalRounds: 4,
+    totalRounds: 6,
     completed: false,
     roundScoresRecorded: false,
     standings: []
@@ -64,6 +66,37 @@ const INITIAL_HUD: HudSnapshot = {
     kind: 'debris',
     side: 0,
     distanceM: 999
+  },
+  spiralWarning: {
+    active: false,
+    blockedRing: 'INNER',
+    safeRing: 'OUTER',
+    switchDir: 'RIGHT',
+    distanceM: 0,
+    spiralName: '',
+    urgency: 0
+  },
+  wrongWay: false,
+  wrecked: false,
+  wreckTimer: 0,
+  takedowns: 0,
+  nudgeCooldown: 0,
+  spinCooldown: 0,
+  spinActive: false,
+  combatTag: '',
+  drafting: {
+    active: false,
+    intensity: 0,
+    targetId: '',
+    distM: 999,
+    slingshotReady: false
+  },
+  ghost: {
+    active: false,
+    bestTimeSec: null,
+    deltaSec: null,
+    isNewBestTime: false,
+    isNewBestTakedowns: false
   },
   drift: {
     active: false,
@@ -210,6 +243,7 @@ export default function App() {
           selectedShipId={selectedShipId}
           customization={customization}
           onSelectShip={(id) => engineRef.current?.selectShip(id)}
+          onPreviewShip={(id) => engineRef.current?.previewShip(id)}
           onChangeCustomization={(patch) => engineRef.current?.setCustomization(patch)}
           onAttachTurntable={handleAttachTurntable}
           onBack={() => {

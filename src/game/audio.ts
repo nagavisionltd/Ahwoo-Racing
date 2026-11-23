@@ -389,6 +389,45 @@ export class SoundEngine {
     }
   }
 
+  public playLaneAlert(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(860, 620, 0.09, 'sawtooth', 0.11);
+    window.setTimeout(() => this.tone(1040, 760, 0.1, 'triangle', 0.1), 95);
+  }
+
+  public playNudge(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(320, 140, 0.14, 'sawtooth', 0.16);
+    this.tone(680, 290, 0.1, 'triangle', 0.12);
+  }
+
+  public playSpinAttack(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(240, 920, 0.24, 'sawtooth', 0.16);
+    this.tone(520, 180, 0.32, 'triangle', 0.14);
+    window.setTimeout(() => this.tone(740, 320, 0.18, 'sine', 0.12), 110);
+  }
+
+  public playDeflect(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(680, 1760, 0.14, 'triangle', 0.2);
+    this.tone(1120, 2240, 0.18, 'sine', 0.16);
+    window.setTimeout(() => this.tone(880, 1520, 0.16, 'sine', 0.13), 55);
+  }
+
+  public playExplosion(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(140, 28, 0.55, 'sawtooth', 0.28);
+    this.tone(95, 24, 0.62, 'triangle', 0.24);
+    window.setTimeout(() => this.tone(68, 22, 0.45, 'sine', 0.2), 70);
+  }
+
+  public playTakedown(): void {
+    if (!this.ctx || !this.masterGain || this.muted || this.ctx.state !== 'running') return;
+    this.tone(440, 880, 0.16, 'triangle', 0.16);
+    window.setTimeout(() => this.tone(660, 1320, 0.22, 'sine', 0.18), 80);
+  }
+
   public playUiClick(): void {
     this.unlock();
     this.tone(680, 980, 0.07, 'sine', 0.14);

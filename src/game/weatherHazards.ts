@@ -58,7 +58,13 @@ const TRIGGER_HAZARD_TAG: Record<string, string> = {
   cosmic_drift: 'HAZARDS CLEAR',
   bioluminescent_tide: 'HAZARD: BIOLUMINESCENT MIST',
   cosmic_monsoon: 'HAZARDS: CORAL DEBRIS + MIST',
-  starlight_breeze: 'HAZARDS CLEAR'
+  starlight_breeze: 'HAZARDS CLEAR',
+  vortex_squall: 'HAZARDS: DEBRIS + ION SURGE',
+  abyssal_mist: 'HAZARD: ABYSSAL DRAIN MIST',
+  singularity_surge: 'HAZARDS: VORTEX SURGE + DEBRIS',
+  plasma_gale: 'HAZARDS: RIFT DEBRIS + SURGE',
+  ion_maelstrom: 'HAZARDS: MAELSTROM SURGE + DEBRIS',
+  rift_haze: 'HAZARD: THERMAL DRAIN MIST'
 };
 
 export function getWeatherHazardTag(phaseId: string): string {
@@ -83,9 +89,11 @@ export class WeatherHazardManager {
     const fogColorStr =
       def.id === 'space'
         ? 'rgba(170, 110, 255, 0.85)'
-        : def.id === 'beach' || def.id === 'space_beach'
-          ? 'rgba(89, 240, 216, 0.82)'
-          : 'rgba(0, 240, 255, 0.82)';
+        : def.id === 'gauntlet'
+          ? 'rgba(255, 110, 92, 0.84)'
+          : def.id === 'beach' || def.id === 'space_beach'
+            ? 'rgba(89, 240, 216, 0.82)'
+            : 'rgba(0, 240, 255, 0.82)';
     this.fogTex = radialTexture(fogColorStr);
 
     this.populateHazards();
@@ -431,6 +439,30 @@ export class WeatherHazardManager {
           createFogSlot(idCounter++, u, sign, ['bioluminescent_tide', 'cosmic_monsoon']);
         } else {
           createDebrisSlot(idCounter++, u, sign, ['cosmic_monsoon']);
+        }
+      });
+    } else if (this.def.id === 'vortex') {
+      // Vortex Abyss: Spinning abyssal debris + deep chasm mist + vortex ion surges
+      candidateUs.forEach((u, idx) => {
+        const sign = idx % 2 === 0 ? 1 : -1;
+        if (idx % 3 === 1) {
+          createSurgeSlot(idCounter++, u, sign, ['vortex_squall', 'singularity_surge']);
+        } else if (idx % 3 === 2) {
+          createFogSlot(idCounter++, u, sign, ['abyssal_mist']);
+        } else if (idx < 16) {
+          createDebrisSlot(idCounter++, u, sign, ['vortex_squall', 'singularity_surge']);
+        }
+      });
+    } else if (this.def.id === 'gauntlet') {
+      // Hyperion Rift: Plasma debris, maelstrom ion surges, and thermal drain mist
+      candidateUs.forEach((u, idx) => {
+        const sign = idx % 2 === 0 ? 1 : -1;
+        if (idx % 3 === 1) {
+          createSurgeSlot(idCounter++, u, sign, ['plasma_gale', 'ion_maelstrom']);
+        } else if (idx % 3 === 2) {
+          createFogSlot(idCounter++, u, sign, ['rift_haze']);
+        } else {
+          createDebrisSlot(idCounter++, u, sign, ['plasma_gale', 'ion_maelstrom']);
         }
       });
     } else {

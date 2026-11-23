@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, RotateCw } from 'lucide-react';
 import type { VehicleCustomization } from '../game/types';
 import {
   getDefaultCustomization,
@@ -15,16 +16,103 @@ interface GarageSelectProps {
   selectedShipId: number;
   customization: VehicleCustomization;
   onSelectShip: (id: number) => void;
+  onPreviewShip: (id: number | null) => void;
   onChangeCustomization: (patch: Partial<VehicleCustomization>) => void;
   onAttachTurntable: (canvas: HTMLCanvasElement | null) => void;
   onBack: () => void;
   onNext: () => void;
 }
 
+const ShipSilhouetteThumb: React.FC<{ id: number; hex: string; active: boolean; previewed: boolean }> = ({
+  id,
+  hex,
+  active,
+  previewed
+}) => {
+  return (
+    <div
+      className="relative h-14 w-full bg-[#040711] border border-white/10 flex items-center justify-center overflow-hidden mb-2"
+      style={{
+        background: `radial-gradient(circle at 50% 62%, ${hex}24 0%, #040711 72%)`
+      }}
+    >
+      <svg viewBox="0 0 140 60" className="w-28 h-12 overflow-visible" aria-hidden="true">
+        {/* Turntable ellipse under-glow */}
+        <ellipse
+          cx="70"
+          cy="47"
+          rx="44"
+          ry="6"
+          fill="none"
+          stroke={hex}
+          strokeOpacity={previewed || active ? 0.85 : 0.3}
+          strokeWidth="1.4"
+        />
+        {id === 0 && (
+          <g>
+            {/* Sovereign GT Coupe */}
+            <path d="M22 36 L44 20 L86 18 L118 32 L112 40 L26 40 Z" fill="#182238" stroke={hex} strokeWidth="1.6" />
+            <path d="M52 21 L78 21 L92 31 L46 31 Z" fill={hex} fillOpacity="0.32" />
+            <rect x="20" y="31" width="12" height="5" fill={hex} />
+            <circle cx="42" cy="39" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+            <circle cx="96" cy="39" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+          </g>
+        )}
+        {id === 1 && (
+          <g>
+            {/* Valkyrie Aero-S Twin Hull Catamaran */}
+            <path d="M18 34 L50 18 L116 26 L122 36 L22 39 Z" fill="#dbe6f7" stroke={hex} strokeWidth="1.6" />
+            <path d="M30 24 L62 15 L88 22 L54 27 Z" fill={hex} fillOpacity="0.4" />
+            <rect x="16" y="29" width="14" height="5" fill={hex} />
+            <circle cx="44" cy="38" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+            <circle cx="98" cy="38" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+          </g>
+        )}
+        {id === 2 && (
+          <g>
+            {/* Noctis Phantom IX Stealth Delta */}
+            <path d="M14 38 L48 16 L124 34 L106 41 L20 41 Z" fill="#131726" stroke={hex} strokeWidth="1.6" />
+            <path d="M54 21 L82 25 L94 33 L48 32 Z" fill={hex} fillOpacity="0.36" />
+            <polygon points="18,38 34,24 36,38" fill={hex} fillOpacity="0.7" />
+            <circle cx="46" cy="39" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+            <circle cx="95" cy="39" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+          </g>
+        )}
+        {id === 3 && (
+          <g>
+            {/* Aurora Apex V Quad-Foil Roadster */}
+            <path d="M22 35 L46 21 L92 19 L120 31 L114 39 L28 39 Z" fill="#9fb6da" stroke={hex} strokeWidth="1.6" />
+            <path d="M52 22 L80 22 L90 30 L48 30 Z" fill={hex} fillOpacity="0.42" />
+            <path d="M30 20 L68 17 L64 23 L26 25 Z" fill={hex} />
+            <circle cx="44" cy="38" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+            <circle cx="98" cy="38" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
+          </g>
+        )}
+      </svg>
+
+      {previewed && (
+        <span
+          className="absolute top-1 left-1.5 px-1.5 py-0.5 text-[7px] font-black tracking-[0.16em] text-black flex items-center gap-1"
+          style={{ backgroundColor: hex }}
+        >
+          <RotateCw className="w-2.5 h-2.5" />
+          360°
+        </span>
+      )}
+      {active && !previewed && (
+        <span className="absolute top-1 left-1.5 px-1.5 py-0.5 text-[7px] font-black tracking-[0.16em] bg-[#f5c451] text-black">
+          LOCKED
+        </span>
+      )}
+    </div>
+  );
+};
+
 export const GarageSelect: React.FC<GarageSelectProps> = ({
   selectedShipId,
   customization,
   onSelectShip,
+  onPreviewShip,
   onChangeCustomization,
   onAttachTurntable,
   onBack,
@@ -32,13 +120,16 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showConceptSheet, setShowConceptSheet] = useState(false);
+  const [hoveredShipId, setHoveredShipId] = useState<number | null>(null);
 
   useEffect(() => {
     onAttachTurntable(canvasRef.current);
     return () => onAttachTurntable(null);
   }, [onAttachTurntable]);
 
-  const prof = SHIP_PROFILES[selectedShipId] || SHIP_PROFILES[0];
+  const activeStageId = hoveredShipId ?? selectedShipId;
+  const prof = SHIP_PROFILES[activeStageId] || SHIP_PROFILES[0];
+  const isHoverPreview = hoveredShipId !== null && hoveredShipId !== selectedShipId;
   const activePaint = getPaintPreset(customization.paintId);
   const activeNeon = getNeonPreset(customization.neonId);
   const activeRim = getRimStylePreset(customization.rimId);
@@ -49,6 +140,11 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
     ['HANDLING', prof.hnd],
     ['OVERDRIVE', prof.bst]
   ];
+
+  const stepCarousel = (dir: number) => {
+    const next = (selectedShipId + dir + SHIP_PROFILES.length) % SHIP_PROFILES.length;
+    onSelectShip(next);
+  };
 
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-between p-4 md:p-7 bg-[#050712]/82 overflow-y-auto">
@@ -63,7 +159,7 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
               HOVER LUXURY SHOWROOM
             </div>
             <div className="font-kanji text-[10px] tracking-[0.18em] text-[#f5c451]">
-              选择奢华悬浮超跑 · DRAG TURNTABLE TO INSPECT 360°
+              选择奢华悬浮超跑 · HOVER OR DRAG FOR 360° CHASSIS PREVIEW
             </div>
           </div>
         </div>
@@ -82,8 +178,16 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
         {/* Left: Interactive 360 Turntable Stage */}
         <div className="lg:col-span-6 lux-panel p-4 flex flex-col justify-between relative min-h-[340px]">
           <div className="flex items-center justify-between text-[10px] tracking-[0.22em]">
-            <span className="text-[#f5c451] font-bold">
-              {showConceptSheet ? 'TURNTABLE DESIGN SHEET' : '360° LIVE CHASSIS TURNTABLE'}
+            <span
+              className="font-bold flex items-center gap-1.5"
+              style={{ color: isHoverPreview ? prof.hex : '#f5c451' }}
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+              {showConceptSheet
+                ? 'TURNTABLE DESIGN SHEET'
+                : isHoverPreview
+                  ? '360° HOVER PREVIEW // CLICK TO LOCK'
+                  : '360° LIVE CHASSIS TURNTABLE'}
             </span>
             <span className="text-[#9eb2da]">{prof.pilotName}</span>
           </div>
@@ -118,8 +222,10 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
             <div className="text-lg md:text-2xl font-black tracking-[0.06em] text-white">
               {prof.name}
             </div>
-            <div className="text-[10px] tracking-[0.18em] mb-3" style={{ color: activeNeon.hex }}>
-              {activePaint.name} · {activeNeon.name} · {activeRim.name}
+            <div className="text-[10px] tracking-[0.18em] mb-3" style={{ color: isHoverPreview ? prof.hex : activeNeon.hex }}>
+              {isHoverPreview
+                ? `${prof.cls.toUpperCase()} · ${prof.subtitle}`
+                : `${activePaint.name} · ${activeNeon.name} · ${activeRim.name}`}
             </div>
             <div className="grid grid-cols-2 gap-x-5 gap-y-2">
               {stats.map(([label, val]) => (
@@ -130,7 +236,7 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                       className="h-full transition-all duration-200"
                       style={{
                         width: `${Math.min(100, Math.round(val * 76))}%`,
-                        backgroundColor: activeNeon.hex
+                        backgroundColor: isHoverPreview ? prof.hex : activeNeon.hex
                       }}
                     />
                   </div>
@@ -143,31 +249,84 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
           </div>
         </div>
 
-        {/* Right: Vehicle Selector Cards + Bespoke Customization Workshop */}
+        {/* Right: Interactive Thumbnail Grid Carousel + Bespoke Customization Workshop */}
         <div className="lg:col-span-6 flex flex-col justify-between gap-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Carousel Header */}
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-black tracking-[0.2em] text-[#9eb2da]">
+              CHASSIS &amp; PILOT ROSTER · 0{selectedShipId + 1} / 0{SHIP_PROFILES.length}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="Previous vehicle"
+                onClick={() => stepCarousel(-1)}
+                className="w-7 h-7 flex items-center justify-center bg-[#080d1d] border border-white/20 hover:border-[#f5c451] text-white cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next vehicle"
+                onClick={() => stepCarousel(1)}
+                className="w-7 h-7 flex items-center justify-center bg-[#080d1d] border border-white/20 hover:border-[#f5c451] text-white cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+            onMouseLeave={() => {
+              setHoveredShipId(null);
+              onPreviewShip(null);
+            }}
+          >
             {SHIP_PROFILES.map((item) => {
               const active = item.id === selectedShipId;
+              const previewed = item.id === hoveredShipId;
               return (
                 <button
                   key={item.id}
                   type="button"
+                  onMouseEnter={() => {
+                    setHoveredShipId(item.id);
+                    onPreviewShip(item.id);
+                  }}
+                  onFocus={() => {
+                    setHoveredShipId(item.id);
+                    onPreviewShip(item.id);
+                  }}
+                  onBlur={() => {
+                    setHoveredShipId(null);
+                    onPreviewShip(null);
+                  }}
                   onClick={() => onSelectShip(item.id)}
-                  className={`text-left p-3 cursor-pointer transition-all duration-150 border ${
+                  className={`text-left p-2.5 cursor-pointer transition-all duration-150 border ${
                     active
                       ? 'bg-[#121a34]/95 border-[#f5c451] shadow-[0_0_24px_rgba(245,196,81,0.28)]'
-                      : 'bg-[#080d1d]/88 border-white/15 hover:border-white/40'
+                      : previewed
+                        ? 'bg-[#0e152c]/95 border-white/60'
+                        : 'bg-[#080d1d]/88 border-white/15 hover:border-white/45'
                   }`}
                   style={{
-                    borderColor: active ? item.hex : undefined
+                    borderColor: active || previewed ? item.hex : undefined
                   }}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-kanji text-sm font-black text-white">
-                      {item.kanji}
+                  <ShipSilhouetteThumb
+                    id={item.id}
+                    hex={item.hex}
+                    active={active}
+                    previewed={previewed}
+                  />
+
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="font-kanji text-xs font-black text-white">
+                      {item.kanji} · {item.pilotName.split(' ')[0]}
                     </span>
                     <span
-                      className="text-[9px] font-bold tracking-[0.16em] px-2 py-0.5 tabular-nums"
+                      className="text-[8px] font-bold tracking-[0.14em] px-1.5 py-0.5 tabular-nums"
                       style={{
                         backgroundColor: `${item.hex}24`,
                         color: item.hex
@@ -176,38 +335,26 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                       CLASS {item.id + 1}
                     </span>
                   </div>
-                  <div className="text-xs font-black tracking-[0.08em] text-white mb-0.5">
+                  <div className="text-[11px] font-black tracking-[0.06em] text-white mb-0.5 truncate">
                     {item.name}
                   </div>
-                  <div className="text-[9px] tracking-[0.12em] text-[#9eb2da] mb-2">
-                    {item.subtitle}
-                  </div>
-                  <div className="space-y-1 text-[9px] tracking-[0.1em]">
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 text-[#8ea2ca]">SPD</span>
-                      <div className="flex-1 h-1 bg-white/10">
-                        <div
-                          className="h-full"
-                          style={{ width: `${Math.min(100, item.spd * 76)}%`, background: item.hex }}
-                        />
+                  <div className="grid grid-cols-3 gap-1.5 text-[8px] tracking-[0.1em] mt-1.5">
+                    <div>
+                      <span className="text-[#8ea2ca] block">SPD {Math.round(item.spd * 100)}</span>
+                      <div className="h-1 bg-white/10 mt-0.5">
+                        <div className="h-full" style={{ width: `${Math.min(100, item.spd * 76)}%`, background: item.hex }} />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 text-[#8ea2ca]">HND</span>
-                      <div className="flex-1 h-1 bg-white/10">
-                        <div
-                          className="h-full"
-                          style={{ width: `${Math.min(100, item.hnd * 76)}%`, background: item.hex }}
-                        />
+                    <div>
+                      <span className="text-[#8ea2ca] block">HND {Math.round(item.hnd * 100)}</span>
+                      <div className="h-1 bg-white/10 mt-0.5">
+                        <div className="h-full" style={{ width: `${Math.min(100, item.hnd * 76)}%`, background: item.hex }} />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 text-[#8ea2ca]">BST</span>
-                      <div className="flex-1 h-1 bg-white/10">
-                        <div
-                          className="h-full"
-                          style={{ width: `${Math.min(100, item.bst * 76)}%`, background: item.hex }}
-                        />
+                    <div>
+                      <span className="text-[#8ea2ca] block">BST {Math.round(item.bst * 100)}</span>
+                      <div className="h-1 bg-white/10 mt-0.5">
+                        <div className="h-full" style={{ width: `${Math.min(100, item.bst * 76)}%`, background: item.hex }} />
                       </div>
                     </div>
                   </div>
@@ -332,7 +479,7 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
             <img
               src="/assets/aistudio/Cyber_Gold_Rider_Concept_a1494b22.png"
               alt="Ahwoo Cyber-Gold Rider"
-              className="w-14 h-14 object-cover border border-[#f5c451]/60 shrink-0"
+              className="w-12 h-12 object-cover border border-[#f5c451]/60 shrink-0"
             />
             <div className="text-left">
               <div className="text-[9px] font-bold tracking-[0.2em] text-[#00f0ff]">
@@ -342,7 +489,7 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                 {prof.pilotName}
               </div>
               <div className="text-[9px] text-[#9fb2d9] mt-0.5">
-                Use ◀ ▶ or A / D keys to switch luxury hover chassis
+                Hover cards for live 360° preview · Drag platter to orbit · Enter to confirm
               </div>
             </div>
           </div>

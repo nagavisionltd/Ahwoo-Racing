@@ -29,7 +29,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center my-auto max-w-7xl w-full mx-auto">
         <div className="lg:col-span-7 flex flex-col items-start text-left">
           <div className="text-[11px] tracking-[0.34em] text-[#00f0ff] font-bold mb-3">
-            FUTURISTIC HOVER HYPERCARS · FOUR CIRCUITS
+            FUTURISTIC HOVER HYPERCARS · SIX CIRCUITS
           </div>
 
           {/* Bespoke inline SVG Title Lockup */}
@@ -108,7 +108,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
                 GRAND PRIX CUP
               </span>
               <span className="text-[10px] tracking-[0.22em] text-[#00f0ff]">
-                4-ROUND CHAMPIONSHIP
+                6-ROUND CHAMPIONSHIP
               </span>
             </button>
 
@@ -153,7 +153,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
                 <div>LUXURY HOVER CARS</div>
               </div>
               <div className="border-t border-white/10 pt-1.5">
-                <div className="text-[#00f0ff] font-bold">03</div>
+                <div className="text-[#00f0ff] font-bold">06</div>
                 <div>3D CIRCUITS</div>
               </div>
               <div className="border-t border-white/10 pt-1.5">
@@ -167,7 +167,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
 
       {/* Single flat control-hint line */}
       <div className="flex items-center justify-between border-t border-white/10 pt-2.5 text-[9px] tracking-[0.2em] text-[#9fb2d9] pr-28">
-        <span>WASD DRIVE · SPACE OVERDRIVE · R RADIO · M AUDIO · ESC PAUSE</span>
+        <span>WASD DRIVE · SHIFT DRIFT · SPACE OVERDRIVE · Q/E NUDGE · F SPIN · R RADIO</span>
         <span className="hidden sm:inline text-[#f5c451]">PRESS ENTER TO START</span>
       </div>
     </div>

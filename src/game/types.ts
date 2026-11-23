@@ -105,6 +105,7 @@ export interface TrackObstacle {
   r: number;
   cool: number;
   active?: boolean;
+  dynamic?: boolean;
 }
 
 export interface ElevationModel {
@@ -120,6 +121,33 @@ export interface TrackAudit {
   sampled: number;
   closed: boolean;
   steps: number;
+}
+
+export type DestructiblePropKind = 'shield_pylon' | 'boost_pylon';
+
+export interface DestructibleProp {
+  id: number;
+  kind: DestructiblePropKind;
+  u: number;
+  off: number;
+  pos: THREE.Vector3;
+  radius: number;
+  intact: boolean;
+  respawnTimer: number;
+  onRail?: boolean;
+  onShatter?: () => void;
+  onReset?: () => void;
+}
+
+export interface ShortcutRail {
+  id: number;
+  uStart: number;
+  uEnd: number;
+  side: -1 | 1;
+  off: number;
+  height: number;
+  width: number;
+  boostU: number;
 }
 
 export interface TrackData {
@@ -139,8 +167,51 @@ export interface TrackData {
   rolls: FeatureSpec[];
   pads: number[];
   obstacles: TrackObstacle[];
+  destructibles?: DestructibleProp[];
+  shortcutRails?: ShortcutRail[];
   anim: ((dt: number, now: number) => void)[];
   setLapPhase?: (phase: 1 | 2 | 3) => void;
+  setPlayerProgress?: (u: number) => void;
+  noBarrierZones?: { at: number; to: number }[];
+  hasBarrierAt?: (u: number) => boolean;
+  spiralBlockGates?: SpiralBlockGate[];
+  randomizeSpiralBlocks?: () => void;
+  spiralZones?: {
+    name: string;
+    cn: string;
+    startU: number;
+    endU: number;
+    center: THREE.Vector3;
+    topY: number;
+    bottomY: number;
+    startR: number;
+    endR: number;
+    clockwise: boolean;
+  }[];
+}
+
+export interface SpiralBlockGate {
+  u: number;
+  spiralIdx: number;
+  spiralName: string;
+  innerSign: -1 | 1;
+  blockedRing: 'INNER' | 'OUTER';
+  blockedSide: -1 | 1;
+  safeRing: 'INNER' | 'OUTER';
+  switchDir: 'LEFT' | 'RIGHT';
+  halfSpan: number;
+  cool: number;
+  warned: boolean;
+}
+
+export interface SpiralBlockWarning {
+  active: boolean;
+  blockedRing: 'INNER' | 'OUTER';
+  safeRing: 'INNER' | 'OUTER';
+  switchDir: 'LEFT' | 'RIGHT';
+  distanceM: number;
+  spiralName: string;
+  urgency: number;
 }
 
 export type WeatherKind = 'rain' | 'mist' | 'solar';
@@ -202,7 +273,7 @@ export interface HazardProximityAlert {
 }
 
 export interface LevelDef {
-  id: 'neon' | 'beach' | 'space' | 'space_beach';
+  id: 'neon' | 'beach' | 'space' | 'space_beach' | 'vortex' | 'gauntlet';
   num: string;
   name: string;
   cn: string;
@@ -219,6 +290,7 @@ export interface LevelDef {
   obstacles: number;
   scale: number;
   features: FeatureSpec[];
+  noBarrierZones?: { at: number; to: number }[];
   look: LevelLook;
   road: RoadPalette;
   theme: LevelTheme;
@@ -294,6 +366,8 @@ export interface AnnouncerSnapshot {
   urgency: 'info' | 'hype' | 'alert';
 }
 
+export type RivalArchetype = 'enforcer' | 'slipstream' | 'tactician';
+
 export interface StandingEntry {
   id: number;
   racerId: string;
@@ -301,6 +375,7 @@ export interface StandingEntry {
   shipName: string;
   colorHex: string;
   isPlayer: boolean;
+  archetype?: RivalArchetype;
   rank: number;
   lap: number;
   progress: number;
@@ -355,6 +430,50 @@ export interface GrandPrixState {
   standings: GrandPrixStanding[];
 }
 
+export interface GhostSample {
+  t: number;
+  u: number;
+  x: number;
+  airY: number;
+  yawOff: number;
+}
+
+export interface CircuitRecord {
+  circuitId: string;
+  bestTimeSec: number | null;
+  bestLapSec: number | null;
+  bestTakedowns: number;
+  bestDriftScore: number;
+  wins: number;
+  gpTrophies: number;
+  bestShipId: number;
+  ghostSamples: GhostSample[];
+  updatedAt: number;
+}
+
+export interface RecordsSummary {
+  circuits: Record<string, CircuitRecord>;
+  gpChampionships: number;
+  totalWins: number;
+  totalTakedowns: number;
+}
+
+export interface DraftingSnapshot {
+  active: boolean;
+  intensity: number; // 0..1
+  targetId: string;
+  distM: number;
+  slingshotReady: boolean;
+}
+
+export interface GhostHudSnapshot {
+  active: boolean;
+  bestTimeSec: number | null;
+  deltaSec: number | null; // negative = ahead of ghost, positive = behind
+  isNewBestTime: boolean;
+  isNewBestTakedowns: boolean;
+}
+
 export interface HudSnapshot {
   speedKmh: number;
   speedNorm: number;
@@ -370,6 +489,8 @@ export interface HudSnapshot {
   bestLapSec: number | null;
   isBoosting: boolean;
   isAirborne: boolean;
+  onRiskRail: boolean;
+  noBarriersActive: boolean;
   muted: boolean;
   countdownText: string;
   splitText: string;
@@ -381,6 +502,17 @@ export interface HudSnapshot {
   weather: WeatherSnapshot;
   hazardAlert: HazardAlert;
   hazardProximity: HazardProximityAlert;
+  spiralWarning: SpiralBlockWarning;
+  wrongWay: boolean;
+  wrecked: boolean;
+  wreckTimer: number;
+  takedowns: number;
+  nudgeCooldown: number;
+  spinCooldown: number;
+  spinActive: boolean;
+  combatTag: string;
+  drafting: DraftingSnapshot;
+  ghost: GhostHudSnapshot;
   drift: DriftSnapshot;
   minimap: MinimapSnapshot;
   announcer: AnnouncerSnapshot;

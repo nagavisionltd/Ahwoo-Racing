@@ -65,6 +65,286 @@ function spaceBeachPoints(): THREE.Vector3[] {
   ]);
 }
 
+interface VortexSpiralMeta {
+  name: string;
+  cn: string;
+  centerX: number;
+  centerZ: number;
+  topY: number;
+  bottomY: number;
+  startR: number;
+  endR: number;
+  clockwise: boolean;
+  ptStartIdx: number;
+  ptEndIdx: number;
+}
+
+function buildVortexLayout(): { points: THREE.Vector3[]; spirals: VortexSpiralMeta[] } {
+  const pts: THREE.Vector3[] = [];
+  const spirals: VortexSpiralMeta[] = [];
+
+  const appendSpiral = (
+    name: string,
+    cn: string,
+    cx: number,
+    cz: number,
+    startAng: number,
+    sweepRad: number,
+    startR: number,
+    endR: number,
+    startY: number,
+    endY: number,
+    segs: number
+  ) => {
+    const ptStartIdx = pts.length;
+    for (let i = 0; i <= segs; i++) {
+      const k = i / segs;
+      const easeY = k * k * (3 - 2 * k) * 0.35 + k * 0.65;
+      const ang = startAng + sweepRad * k;
+      const r = startR + (endR - startR) * k;
+      const y = startY + (endY - startY) * easeY;
+      pts.push(new THREE.Vector3(cx + r * Math.cos(ang), y, cz + r * Math.sin(ang)));
+    }
+    const ptEndIdx = pts.length - 1;
+    spirals.push({
+      name,
+      cn,
+      centerX: cx,
+      centerZ: cz,
+      topY: startY,
+      bottomY: endY,
+      startR,
+      endR,
+      clockwise: sweepRad > 0,
+      ptStartIdx,
+      ptEndIdx
+    });
+    const endAng = startAng + sweepRad;
+    // Outgoing unit XZ tangent: (+sin, -cos) when CCW (sweepRad < 0), (-sin, +cos) when CW (sweepRad > 0)
+    const dir = sweepRad > 0 ? 1 : -1;
+    const tx = dir * -Math.sin(endAng);
+    const tz = dir * Math.cos(endAng);
+    const ex = cx + endR * Math.cos(endAng);
+    const ez = cz + endR * Math.sin(endAng);
+    return { ex, ez, ey: endY, tx, tz };
+  };
+
+  // Launch straight heading East (+X) at Y = +680
+  const c1x = -2900;
+  const c1z = -1500;
+  const r1Start = 940;
+  pts.push(new THREE.Vector3(c1x - 1400, 690, c1z + r1Start));
+  pts.push(new THREE.Vector3(c1x - 700, 686, c1z + r1Start));
+
+  // HELIX I — Upper Cyclone (290 deg CCW downward plunge: +680 -> +260)
+  const s1 = appendSpiral(
+    'UPPER CYCLONE',
+    '上层气旋螺旋',
+    c1x,
+    c1z,
+    Math.PI * 0.5,
+    -(290 * Math.PI) / 180,
+    r1Start,
+    540,
+    680,
+    260,
+    12
+  );
+
+  // Chasm Bridge 1 & Mega-Jump toward Helix II
+  const b1Len = 2250;
+  pts.push(new THREE.Vector3(s1.ex + s1.tx * 520, 250, s1.ez + s1.tz * 520));
+  pts.push(new THREE.Vector3(s1.ex + s1.tx * 1180, 225, s1.ez + s1.tz * 1180));
+  pts.push(new THREE.Vector3(s1.ex + s1.tx * 1760, 200, s1.ez + s1.tz * 1760));
+  const h2EntryX = s1.ex + s1.tx * b1Len;
+  const h2EntryZ = s1.ez + s1.tz * b1Len;
+
+  // Align CW Helix II center smoothly perpendicular to incoming bridge tangent
+  const r2Start = 960;
+  const h2StartAng = Math.atan2(-s1.tx, s1.tz);
+  const c2x = h2EntryX - r2Start * Math.cos(h2StartAng);
+  const c2z = h2EntryZ - r2Start * Math.sin(h2StartAng);
+
+  // HELIX II — Twin Maelstrom (290 deg CW reverse plunge: +185 -> -245)
+  const s2 = appendSpiral(
+    'TWIN MAELSTROM',
+    '双生漩涡螺旋',
+    c2x,
+    c2z,
+    h2StartAng,
+    (290 * Math.PI) / 180,
+    r2Start,
+    540,
+    185,
+    -245,
+    12
+  );
+
+  // Hyper-Velocity Abyss Straight + Corkscrew Connector toward Helix III
+  const b2Len = 2900;
+  pts.push(new THREE.Vector3(s2.ex + s2.tx * 560, -252, s2.ez + s2.tz * 560));
+  pts.push(new THREE.Vector3(s2.ex + s2.tx * 1450, -258, s2.ez + s2.tz * 1450));
+  pts.push(new THREE.Vector3(s2.ex + s2.tx * 2280, -264, s2.ez + s2.tz * 2280));
+  const h3EntryX = s2.ex + s2.tx * b2Len;
+  const h3EntryZ = s2.ez + s2.tz * b2Len;
+
+  // Align CCW Helix III center perpendicular to incoming tangent
+  const r3Start = 980;
+  const h3StartAng = Math.atan2(s2.tx, -s2.tz);
+  const c3x = h3EntryX - r3Start * Math.cos(h3StartAng);
+  const c3z = h3EntryZ - r3Start * Math.sin(h3StartAng);
+
+  // HELIX III — Singularity Core (295 deg CCW deep plunge: -270 -> -670)
+  const s3 = appendSpiral(
+    'SINGULARITY CORE',
+    '奇点深渊螺旋',
+    c3x,
+    c3z,
+    h3StartAng,
+    -(295 * Math.PI) / 180,
+    r3Start,
+    530,
+    -270,
+    -670,
+    12
+  );
+
+  // Final Abyss Core Finish Straight
+  pts.push(new THREE.Vector3(s3.ex + s3.tx * 520, -678, s3.ez + s3.tz * 520));
+  pts.push(new THREE.Vector3(s3.ex + s3.tx * 1160, -682, s3.ez + s3.tz * 1160));
+  pts.push(new THREE.Vector3(s3.ex + s3.tx * 1760, -682, s3.ez + s3.tz * 1760));
+
+  return { points: pts, spirals };
+}
+
+const VORTEX_LAYOUT = buildVortexLayout();
+
+function buildGauntletLayout(): { points: THREE.Vector3[]; spirals: VortexSpiralMeta[] } {
+  const pts: THREE.Vector3[] = [];
+  const spirals: VortexSpiralMeta[] = [];
+
+  const appendSpiral = (
+    name: string,
+    cn: string,
+    cx: number,
+    cz: number,
+    startAng: number,
+    sweepRad: number,
+    startR: number,
+    endR: number,
+    startY: number,
+    endY: number,
+    segs: number
+  ) => {
+    const ptStartIdx = pts.length;
+    for (let i = 0; i <= segs; i++) {
+      const k = i / segs;
+      const easeY = k * k * (3 - 2 * k) * 0.35 + k * 0.65;
+      const ang = startAng + sweepRad * k;
+      const r = startR + (endR - startR) * k;
+      const y = startY + (endY - startY) * easeY;
+      pts.push(new THREE.Vector3(cx + r * Math.cos(ang), y, cz + r * Math.sin(ang)));
+    }
+    const ptEndIdx = pts.length - 1;
+    spirals.push({
+      name,
+      cn,
+      centerX: cx,
+      centerZ: cz,
+      topY: startY,
+      bottomY: endY,
+      startR,
+      endR,
+      clockwise: sweepRad > 0,
+      ptStartIdx,
+      ptEndIdx
+    });
+    const endAng = startAng + sweepRad;
+    const dir = sweepRad > 0 ? 1 : -1;
+    const tx = dir * -Math.sin(endAng);
+    const tz = dir * Math.cos(endAng);
+    const ex = cx + endR * Math.cos(endAng);
+    const ez = cz + endR * Math.sin(endAng);
+    return { ex, ez, ey: endY, tx, tz };
+  };
+
+  // Launch straight heading East (+X) at Y = +660 -> Jump 1
+  const c1x = -3200;
+  const c1z = 300;
+  const r1Start = 900;
+  pts.push(new THREE.Vector3(c1x - 2400, 665, c1z + r1Start));
+  pts.push(new THREE.Vector3(c1x - 1600, 663, c1z + r1Start));
+  pts.push(new THREE.Vector3(c1x - 800, 661, c1z + r1Start));
+
+  // DESCENDING SPIRAL I — Solar Helix (345 deg CCW plunge: +660 -> +230)
+  const s1 = appendSpiral(
+    'SOLAR HELIX',
+    '烈日下沉螺旋',
+    c1x,
+    c1z,
+    Math.PI * 0.5,
+    -(345 * Math.PI) / 180,
+    r1Start,
+    540,
+    660,
+    230,
+    14
+  );
+
+  // Mid-Course Canyon Gauntlet (6500m): Corkscrew Tunnel 1 -> No-Barrier Zone 1 -> Loop 1 -> Jump 2
+  const b1Len = 6500;
+  for (let d = 650; d <= 5850; d += 650) {
+    const k = d / b1Len;
+    pts.push(
+      new THREE.Vector3(
+        s1.ex + s1.tx * d,
+        226 - k * 66,
+        s1.ez + s1.tz * d
+      )
+    );
+  }
+  const h2EntryX = s1.ex + s1.tx * b1Len;
+  const h2EntryZ = s1.ez + s1.tz * b1Len;
+
+  // Align CW Helix II smoothly perpendicular to incoming tangent
+  const r2Start = 900;
+  const h2StartAng = Math.atan2(-s1.tx, s1.tz);
+  const c2x = h2EntryX - r2Start * Math.cos(h2StartAng);
+  const c2z = h2EntryZ - r2Start * Math.sin(h2StartAng);
+
+  // DESCENDING SPIRAL II — Rift Maelstrom (345 deg CW plunge: +155 -> -285)
+  const s2 = appendSpiral(
+    'RIFT MAELSTROM',
+    '裂谷深渊螺旋',
+    c2x,
+    c2z,
+    h2StartAng,
+    (345 * Math.PI) / 180,
+    r2Start,
+    540,
+    155,
+    -285,
+    14
+  );
+
+  // Final High-Speed Gauntlet Run (6800m): Loop 2 -> Corkscrew Tunnel 2 -> No-Barrier Slalom -> Jump 3 -> Finish
+  const b2Len = 6800;
+  for (let d = 680; d <= b2Len; d += 680) {
+    const k = d / b2Len;
+    pts.push(
+      new THREE.Vector3(
+        s2.ex + s2.tx * d,
+        -292 - k * 148,
+        s2.ez + s2.tz * d
+      )
+    );
+  }
+
+  return { points: pts, spirals };
+}
+
+const GAUNTLET_LAYOUT = buildGauntletLayout();
+
 type FeatureRow = [FeatureType, number, number, number?, number?, boolean?];
 
 function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[], isSprint = false): FeatureSpec[] {
@@ -80,7 +360,7 @@ function planFeatures(pts: THREE.Vector3[], rows: FeatureRow[], isSprint = false
       case 'loop':
         return { type, at, w: (p * 2.65) / L, radius: p, narrow: 0.36, blend: 340 / L };
       case 'corkscrew':
-        return { type, at, w: p / L, narrow: 0.56, blend: 200 / L, turns: q || 1 };
+        return { type, at, w: p / L, narrow: r || 0.56, blend: 200 / L, turns: q || 1 };
       case 'tunnel':
         return { type, at, w: p / L, height: q, underwater };
     }
@@ -312,6 +592,125 @@ export const LEVELS: LevelDef[] = [
       centre: '#ffdf88'
     },
     theme: { accent: 0x36f5d8, secondary: 0xf5c451, wall: 0x52f7e4 }
+  },
+  {
+    id: 'vortex',
+    num: '05',
+    name: 'VORTEX ABYSS',
+    cn: '螺旋深渊',
+    sub: 'TRIPLE DESCENDING HELIX · ACTIVE BARRIER CORRIDOR',
+    tagline: 'VORTEX ABYSS',
+    badge: 'HELIX SPRINT',
+    weatherBadge: 'ION VORTEX',
+    weatherTitle: 'VORTEX ION SQUALL // 深渊电离暴',
+    desc: 'Monumental 1,370m vertical descent across three counter-rotating spiral chasms with live shifting holographic barriers.',
+    trackTrackTitle: 'ABYSSAL SPIRAL',
+    isSprint: true,
+    points: VORTEX_LAYOUT.points,
+    hw: 92,
+    obstacles: 14,
+    scale: 1,
+    features: planFeatures(
+      VORTEX_LAYOUT.points,
+      [
+        ['jump', 0.312, 340, 88, 620],
+        ['corkscrew', 0.618, 1180, 1],
+        ['tunnel', 0.945, 760, 38]
+      ],
+      true
+    ),
+    look: {
+      sky: 0x070419,
+      fog: 0x11092e,
+      fogNear: 380,
+      fogFar: 5200,
+      ambient: 0x7a6fd4,
+      ambientI: 0.78,
+      hemiSky: 0x99d8ff,
+      hemiGround: 0x380f4a,
+      hemiI: 1.35,
+      sun: 0xffd2b8,
+      sunI: 1.75,
+      rim: 0xff2e93,
+      rimI: 1.05,
+      exposure: 1.02,
+      bloom: 0.5,
+      bloomRadius: 0.36,
+      bloomThreshold: 1.04
+    },
+    road: {
+      base: '#0a0924',
+      edge: '#00f0ff',
+      edge2: '#ff2e93',
+      lane: '#c8b6ff',
+      centre: '#f5c451'
+    },
+    theme: { accent: 0x00f0ff, secondary: 0xff2e93, wall: 0x9d4edd }
+  },
+  {
+    id: 'gauntlet',
+    num: '06',
+    name: 'HYPERION RIFT',
+    cn: '海伯利安裂谷',
+    sub: 'SPRINT GAUNTLET · NO-BARRIER LEDGES · CORKSCREW TUNNELS',
+    tagline: 'HYPERION RIFT',
+    badge: 'GAUNTLET SPRINT',
+    weatherBadge: 'PLASMA GALE',
+    weatherTitle: 'SOLAR PLASMA GALE // 等离子狂风',
+    desc: 'High-stakes start-to-finish sprint uniting 3 mega-jumps, twin descending spirals, enclosed corkscrew tunnels, dual loop-de-loops, unbarriered drops, and dynamic moving obstacles.',
+    trackTrackTitle: 'GAUNTLET OVERDRIVE',
+    isSprint: true,
+    points: GAUNTLET_LAYOUT.points,
+    hw: 94,
+    obstacles: 34,
+    scale: 1,
+    features: planFeatures(
+      GAUNTLET_LAYOUT.points,
+      [
+        ['jump', 0.028, 320, 84, 560],
+        ['corkscrew', 0.282, 1140, 1, 0.68],
+        ['tunnel', 0.282, 1140, 38],
+        ['loop', 0.422, 210],
+        ['jump', 0.470, 340, 92, 600],
+        ['loop', 0.728, 200],
+        ['corkscrew', 0.785, 1140, 1, 0.68],
+        ['tunnel', 0.785, 1140, 38],
+        ['jump', 0.916, 320, 82, 540]
+      ],
+      true
+    ),
+    noBarrierZones: [
+      { at: 0.348, to: 0.402 },
+      { at: 0.592, to: 0.665 },
+      { at: 0.855, to: 0.905 }
+    ],
+    look: {
+      sky: 0x0c051c,
+      fog: 0x1b0b28,
+      fogNear: 420,
+      fogFar: 5600,
+      ambient: 0x9b709c,
+      ambientI: 0.8,
+      hemiSky: 0xffb38a,
+      hemiGround: 0x260c38,
+      hemiI: 1.4,
+      sun: 0xffc67d,
+      sunI: 1.9,
+      rim: 0xff425b,
+      rimI: 1.15,
+      exposure: 1.03,
+      bloom: 0.48,
+      bloomRadius: 0.35,
+      bloomThreshold: 1.04
+    },
+    road: {
+      base: '#0f0c20',
+      edge: '#ff425b',
+      edge2: '#f5c451',
+      lane: '#ff9ec2',
+      centre: '#00f0ff'
+    },
+    theme: { accent: 0xf5c451, secondary: 0xff425b, wall: 0xff6b3d }
   }
 ];
 
@@ -389,7 +788,8 @@ function makeElevation(features: FeatureSpec[]): ElevationModel {
 function buildFrames(
   curve: THREE.CatmullRomCurve3,
   steps: number,
-  closed: boolean
+  closed: boolean,
+  worldUpLock = false
 ): { p: THREE.Vector3; t: THREE.Vector3; s: THREE.Vector3; up: THREE.Vector3 }[] {
   const frames: { p: THREE.Vector3; t: THREE.Vector3; s: THREE.Vector3; up: THREE.Vector3 }[] = [];
   const up = new THREE.Vector3(0, 1, 0);
@@ -397,7 +797,10 @@ function buildFrames(
     const u = closed ? (i / steps) % 1 : Math.min(1, i / steps);
     const t = curve.getTangentAt(u);
     const p = curve.getPointAt(u);
-    const s = i ? frames[i - 1].s.clone() : new THREE.Vector3().crossVectors(t, up);
+    const s =
+      i && !worldUpLock
+        ? frames[i - 1].s.clone()
+        : new THREE.Vector3().crossVectors(t, up);
     s.addScaledVector(t, -s.dot(t)).normalize();
     frames.push({ p, t, s, up: new THREE.Vector3().crossVectors(s, t).normalize() });
   }
@@ -468,10 +871,49 @@ export function buildTrack(def: LevelDef): TrackData {
   const curve = new THREE.CatmullRomCurve3(pts, closed, 'centripetal');
   const len = curve.getLength();
   const steps = Math.max(1200, Math.round(len / 3.4));
-  const frames = buildFrames(curve, steps, closed);
+  const frames = buildFrames(curve, steps, closed, def.id === 'vortex' || def.id === 'gauntlet');
   const elev = makeElevation(def.features);
   const hw = def.hw;
   const audit = auditTrack(curve, steps);
+
+  const findClosestU = (target: THREE.Vector3, minIdx: number) => {
+    let bestI = minIdx;
+    let bestD = Infinity;
+    for (let i = minIdx; i <= steps; i++) {
+      const d = frames[i].p.distanceToSquared(target);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    return bestI / steps;
+  };
+
+  let scanCursor = 0;
+  const rawSpirals =
+    def.id === 'vortex'
+      ? VORTEX_LAYOUT.spirals
+      : def.id === 'gauntlet'
+        ? GAUNTLET_LAYOUT.spirals
+        : [];
+  const spiralZones = rawSpirals.map((sp) => {
+    const startU = findClosestU(pts[sp.ptStartIdx], scanCursor);
+    scanCursor = Math.min(steps, Math.round(startU * steps));
+    const endU = findClosestU(pts[sp.ptEndIdx], scanCursor);
+    scanCursor = Math.min(steps, Math.round(endU * steps));
+    return {
+      name: sp.name,
+      cn: sp.cn,
+      startU,
+      endU,
+      center: new THREE.Vector3(sp.centerX, (sp.topY + sp.bottomY) * 0.5, sp.centerZ),
+      topY: sp.topY,
+      bottomY: sp.bottomY,
+      startR: sp.startR,
+      endR: sp.endR,
+      clockwise: sp.clockwise
+    };
+  });
 
   const normU = (u0: number): number =>
     closed ? ((u0 % 1) + 1) % 1 : Math.max(0, Math.min(1, u0));
@@ -607,8 +1049,26 @@ export function buildTrack(def: LevelDef): TrackData {
       up.applyAxisAngle(t, ang);
     }
 
+    // Smooth inward banking along descending vortex helix turns
+    for (const Z of spiralZones) {
+      if (u < Z.startU || u > Z.endU) continue;
+      const k = (u - Z.startU) / Math.max(0.0001, Z.endU - Z.startU);
+      const bankEnv = Math.pow(Math.sin(Math.PI * k), 0.72);
+      // CCW turn curves left (-s), CW turn curves right (+s); tilt up slightly inward for natural spiral carving
+      const bankRad = (Z.clockwise ? 0.25 : -0.25) * bankEnv;
+      s.applyAxisAngle(t, bankRad);
+      up.applyAxisAngle(t, bankRad);
+    }
+
     return { p: raw, h, pos, t, s, up, width: hw * widthAt(u) };
   }
+
+  const noBarrierZones = def.noBarrierZones ?? [];
+  const hasBarrierAt = (u0: number): boolean => {
+    if (!noBarrierZones.length) return true;
+    const u = normU(u0);
+    return !noBarrierZones.some((z) => u >= z.at && u <= z.to);
+  };
 
   return {
     def,
@@ -627,6 +1087,9 @@ export function buildTrack(def: LevelDef): TrackData {
     rolls,
     pads: [],
     obstacles: [],
-    anim: []
+    anim: [],
+    noBarrierZones,
+    hasBarrierAt,
+    spiralZones
   };
 }
