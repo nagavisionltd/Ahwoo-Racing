@@ -2656,9 +2656,9 @@ export function buildWorld(
     metalnessMap: panel.orm,
     emissive: 0xffffff,
     emissiveMap: wallTex,
-    emissiveIntensity: 1.15,
+    emissiveIntensity: 0.55,
     transparent: true,
-    opacity: 0.62,
+    opacity: 0.42,
     side: THREE.DoubleSide,
     depthWrite: false
   });
