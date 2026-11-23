@@ -7,7 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RaceAnnouncer } from './announcer';
 import { SoundEngine } from './audio';
 import { getCircuitRecord, saveRaceRecord, type SaveRaceOutcomeResult } from './records';
-import { generateRivalIdentities, getPlayerIdentity } from './rivals';
+import { generateRivalIdentities, getPlayerIdentity, pickRivalIds } from './rivals';
 import { canvasTexture, radialTexture, setTextureMaxAnisotropy } from './textures';
 import { LEVELS } from './tracks';
 import type {
@@ -626,6 +626,11 @@ export class AhwooEngine {
       // A late arrival can be a hovered preview or the locked-in ship.
       this.updateTurntableModel();
       if (SHIP_PROFILES[this.selectedShipId]?.fixedLivery) this.rebuildPlayer();
+      // Rival grids now field cooked hulls too; rebuild them in place while the
+      // car is still in the garage, never mid-race.
+      if (this.rivals.length > 0 && this.step !== 'race' && this.step !== 'results') {
+        this.setupRivals(this.selectedShipId);
+      }
     });
     for (const p of SHIP_PROFILES) {
       if (p.model) preloadRacerModel(p.model);
@@ -1102,9 +1107,7 @@ export class AhwooEngine {
     this.rivals = [];
     const trk = this.world?.trk;
     const hw = trk ? trk.hw : 120;
-    // Rival grids and their offset/speed tables are sized for three slots, so a
-    // player driving the fixed-livery chassis fields the first three rivals.
-    const ids = [0, 1, 2, 3].filter((id) => id !== playerId).slice(0, 3);
+    const ids = pickRivalIds(playerId, 3);
     const identities = generateRivalIdentities(ids.length);
     const archetypes: RivalArchetype[] = ['enforcer', 'slipstream', 'tactician'];
     ids.forEach((typeId, i) => {
@@ -1280,7 +1283,7 @@ export class AhwooEngine {
       lastRoundRank: 1
     };
 
-    const ids = [0, 1, 2, 3].filter((id) => id !== this.selectedShipId).slice(0, 3);
+    const ids = pickRivalIds(this.selectedShipId, 3);
     const identities = generateRivalIdentities(ids.length);
     ids.forEach((typeId, i) => {
       const prof = SHIP_PROFILES[typeId] || SHIP_PROFILES[0];

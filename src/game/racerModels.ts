@@ -15,12 +15,18 @@ const TARGET_LENGTH = 4.6;
 
 /** Yaw needed so the model's nose points along +Z like the procedural hulls. */
 const MODEL_YAW: Record<string, number> = {
-  'chao-space-racer': 0,
-  // These three were generated nose-along-X, so they need a quarter turn to
-  // point down +Z like the Chao and the procedural hulls.
-  'green-space-racer': -Math.PI / 2,
-  'angel-chao-racer': -Math.PI / 2,
-  'midnight-aero-majesty': -Math.PI / 2
+  // All four cooked exports already point nose-along +Z; any extra yaw here
+  // swings the nozzles onto the hull's flank.
+};
+
+/**
+ * Per-chassis fit trims applied on top of the shared length normalisation.
+ * The verdant hull is a broad leaf-creature rather than a wedge, so it sits
+ * small and nose-high on the pad; lifted, lengthened and pitched nose-down it
+ * reads as a speeder instead of a plant on a dais.
+ */
+const MODEL_FIT: Record<string, { scale?: number; lift?: number; pitch?: number }> = {
+  'green-space-racer': { scale: 1.3, lift: 0.14, pitch: 0.2 }
 };
 
 const cache = new Map<string, THREE.Group>();
@@ -66,15 +72,17 @@ export function preloadRacerModel(name: string): void {
         const box = new THREE.Box3().setFromObject(src);
         const size = box.getSize(new THREE.Vector3());
         const centre = box.getCenter(new THREE.Vector3());
-        const k = TARGET_LENGTH / Math.max(size.z, 0.001);
+        const fit = MODEL_FIT[name] ?? {};
+        const k = (TARGET_LENGTH * (fit.scale ?? 1)) / Math.max(size.z, 0.001);
 
         src.position.sub(centre);
         const holder = new THREE.Group();
         holder.add(src);
         holder.scale.setScalar(k);
         holder.rotation.y = MODEL_YAW[name] ?? 0;
+        holder.rotation.x = fit.pitch ?? 0;
         // Sit the hull just above the hover halo at y = -0.78.
-        holder.position.y = -0.55 + (size.y * k) / 2;
+        holder.position.y = -0.55 + (size.y * k) / 2 + (fit.lift ?? 0);
 
         pending.delete(name);
         cache.set(name, holder);

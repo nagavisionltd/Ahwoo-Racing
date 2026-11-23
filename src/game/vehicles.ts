@@ -621,11 +621,15 @@ function buildBoosterRig(
   const shockRings: THREE.Mesh[] = [];
   const flameTex = getFlameTexture();
 
+  // Accent-tinted, but pushed toward exhaust heat: a pure blue or white plume
+  // washes out against the cyan road markings and reads as no exhaust at all.
+  const plumeTint = new THREE.Color(accentHex).lerp(new THREE.Color(0xff9a4a), 0.42);
+
   const outerMat = new THREE.MeshBasicMaterial({
     map: flameTex,
-    color: accentHex,
+    color: plumeTint,
     transparent: true,
-    opacity: 0.56,
+    opacity: 0.62,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     depthWrite: false
@@ -634,7 +638,7 @@ function buildBoosterRig(
     map: flameTex,
     color: 0xfff3d4,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.82,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     depthWrite: false
@@ -652,7 +656,7 @@ function buildBoosterRig(
   outerGeo.translate(0, -plumeLength * 0.5, 0);
   outerGeo.rotateX(Math.PI / 2);
 
-  const innerGeo = new THREE.ConeGeometry(plumeRadius * 0.52, plumeLength * 0.68, 12, 1, true);
+  const innerGeo = new THREE.ConeGeometry(plumeRadius * 0.56, plumeLength * 0.78, 12, 1, true);
   innerGeo.translate(0, -plumeLength * 0.34, 0);
   innerGeo.rotateX(Math.PI / 2);
 
@@ -729,7 +733,7 @@ function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale:
     nozzleCoords,
     accent,
     profile.secondaryColor,
-    Math.max(0.26, (size.x / 2) * 0.19),
+    Math.max(0.3, (size.x / 2) * 0.21),
     Math.max(2.4, size.z * 0.66)
   );
   const engine = rig.engine;

@@ -47,6 +47,25 @@ const PLAYER_IDENTITIES: Record<number, RacerIdentity> = {
   3: { racerId: 'AUR-12', teamName: 'SKYLINE ELITE' }
 };
 
+/** Classes that ship a cooked, factory-livery GLB. */
+const COOKED_SHIP_IDS = [4, 5, 6, 7];
+
+/**
+ * Picks the three AI grid slots for a race. Cooked hulls go first so the field
+ * is not three copies of the procedural showroom cars, with the built chassis
+ * filling in whenever the player is already driving one of the four cooked
+ * ships. Deterministic, because grand-prix standings and the live grid have to
+ * agree on who is in the race.
+ */
+export function pickRivalIds(playerId: number, count = 3): number[] {
+  const ids = COOKED_SHIP_IDS.filter((id) => id !== playerId);
+  for (const id of [0, 1, 2, 3]) {
+    if (ids.length >= count) break;
+    if (id !== playerId) ids.push(id);
+  }
+  return ids.slice(0, count);
+}
+
 function shuffleArray<T>(items: readonly T[]): T[] {
   const arr = [...items];
   for (let i = arr.length - 1; i > 0; i--) {
