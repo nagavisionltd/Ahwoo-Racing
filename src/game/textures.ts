@@ -173,6 +173,189 @@ export function makeRoadMarkingsTexture(theme: RoadPalette): THREE.CanvasTexture
   return t;
 }
 
+/* ---- City facade atlas -----------------------------------------------------
+ * 4×2 cells of 512×1024 px, so one cell is 32 m wide × 64 m tall at 16 px/m:
+ * eight distinct tower skins with a matching emissive-only pass where only
+ * the lit windows carry colour. Cell grids are exact multiples of the window
+ * pitch, so a tower can tile a cell seamlessly at any height.
+ */
+export function makeFacadeAtlas(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+  const W = 2048;
+  const H = 2048;
+  const CW = 512;
+  const CH = 1024;
+  const palette = ['#8fe9ff', '#ffd27a', '#ff6fae', '#b8c7ff', '#7ef0d0', '#ffffff'];
+  const FLOOR = 64;
+
+  const draw = (mask: boolean) =>
+    canvasTexture(W, H, (g) => {
+      g.fillStyle = mask ? '#000000' : '#0a1020';
+      g.fillRect(0, 0, W, H);
+
+      for (let cell = 0; cell < 8; cell++) {
+        const ox = (cell % 4) * CW;
+        const oy = Math.floor(cell / 4) * CH;
+        const variant = cell % 4;
+        const winW = variant === 2 ? 56 : 44;
+        const gap = 20;
+
+        for (let y = 0; y < CH; y += FLOOR) {
+          if (!mask) {
+            g.fillStyle = variant === 1 ? '#131b2e' : '#0e1626';
+            g.fillRect(ox, oy + y, CW, 14);
+            g.fillStyle = 'rgba(120,170,255,0.10)';
+            g.fillRect(ox, oy + y + 14, CW, 2);
+          }
+          for (let x = 12; x + winW <= CW - 12; x += winW + gap) {
+            if (mask) {
+              if (Math.random() > (variant === 3 ? 0.22 : 0.36)) continue;
+              g.fillStyle = palette[(Math.random() * palette.length) | 0];
+              g.globalAlpha = 0.55 + Math.random() * 0.45;
+              g.fillRect(ox + x, oy + y + 18, winW, FLOOR - 26);
+              continue;
+            }
+            const grd = g.createLinearGradient(0, oy + y + 18, 0, oy + y + FLOOR - 8);
+            grd.addColorStop(0, '#1b2740');
+            grd.addColorStop(1, '#0c1424');
+            g.fillStyle = grd;
+            g.fillRect(ox + x, oy + y + 18, winW, FLOOR - 26);
+            g.fillStyle = 'rgba(255,255,255,0.05)';
+            g.fillRect(ox + x, oy + y + FLOOR - 10, winW, 2);
+          }
+          g.globalAlpha = 1;
+        }
+
+        if (!mask) {
+          g.fillStyle = '#060b15';
+          g.fillRect(ox, oy, 6, CH);
+          g.fillRect(ox + CW - 6, oy, 6, CH);
+        }
+
+        if (variant === 0 || variant === 2) {
+          const sx = ox + (variant === 0 ? 40 : CW - 76);
+          g.fillStyle = mask ? '#59f6ff' : '#071019';
+          g.fillRect(sx, oy + 120, 34, CH - 240);
+          if (mask) {
+            g.fillStyle = '#ffffff';
+            for (let k = 0; k < 6; k++) g.fillRect(sx + 10, oy + 160 + k * 120, 14, 46);
+          }
+        }
+
+        if (variant === 1 && !mask) {
+          g.fillStyle = 'rgba(180,210,255,0.16)';
+          for (let y = 120; y < CH - 40; y += 256) g.fillRect(ox + 24, oy + y, CW - 48, 3);
+        }
+      }
+    });
+
+  const map = draw(false);
+  const emissive = draw(true);
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  emissive.wrapS = emissive.wrapT = THREE.ClampToEdgeWrapping;
+  return { map, emissive };
+}
+
+/* ---- Metal plating --------------------------------------------------------
+ * One plate pattern drives three maps: albedo, a Sobel-derived tangent-space
+ * normal, and a packed ORM (R=AO, G=roughness, B=metalness) for the deck
+ * underside and the track barriers.
+ */
+export function makeMetalPlateMaps(
+  base: string,
+  accent: string | number
+): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture; orm: THREE.CanvasTexture } {
+  const S = 512;
+  const accentCss = '#' + new THREE.Color(accent).getHexString();
+  const heightCanvas = document.createElement('canvas');
+  heightCanvas.width = S;
+  heightCanvas.height = S;
+  const hg = heightCanvas.getContext('2d')!;
+  hg.fillStyle = '#808080';
+  hg.fillRect(0, 0, S, S);
+  hg.fillStyle = '#1c1c1c';
+  hg.fillRect(0, 0, S, 4);
+  hg.fillRect(0, S - 4, S, 4);
+  hg.fillRect(0, 0, 4, S);
+  hg.fillRect(S - 4, 0, 4, S);
+  hg.fillRect(0, S / 2 - 2, S, 4);
+  for (let y = 32; y < S; y += 64) {
+    for (let x = 32; x < S; x += 64) {
+      hg.fillStyle = '#d8d8d8';
+      hg.beginPath();
+      hg.arc(x, y, 4, 0, 7);
+      hg.fill();
+    }
+  }
+  for (let i = 0; i < 200; i++) {
+    hg.fillStyle = `rgba(255,255,255,${0.02 + Math.random() * 0.05})`;
+    hg.fillRect(Math.random() * S, Math.random() * S, 1 + Math.random() * 2, 20 + Math.random() * 90);
+  }
+  const hd = hg.getImageData(0, 0, S, S).data;
+  const at = (x: number, y: number) => hd[(((y + S) % S) * S + ((x + S) % S)) * 4] / 255;
+
+  const normalMap = canvasTexture(S, S, (g) => {
+    const img = g.createImageData(S, S);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const dx = (at(x + 1, y) - at(x - 1, y)) * 1.6;
+        const dy = (at(x, y + 1) - at(x, y - 1)) * 1.6;
+        const i = (y * S + x) * 4;
+        img.data[i] = Math.max(0, Math.min(255, (0.5 - dx * 0.5) * 255));
+        img.data[i + 1] = Math.max(0, Math.min(255, (0.5 - dy * 0.5) * 255));
+        img.data[i + 2] = 255;
+        img.data[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  });
+  normalMap.colorSpace = THREE.NoColorSpace;
+
+  const map = canvasTexture(S, S, (g) => {
+    g.fillStyle = base;
+    g.fillRect(0, 0, S, S);
+    g.fillStyle = 'rgba(0,0,0,0.6)';
+    g.fillRect(0, 0, S, 4);
+    g.fillRect(0, S - 4, S, 4);
+    g.fillRect(0, 0, 4, S);
+    g.fillRect(S - 4, 0, 4, S);
+    g.fillRect(0, S / 2 - 2, S, 4);
+    g.globalAlpha = 0.12;
+    g.fillStyle = accentCss;
+    for (let i = 0; i < 24; i++) g.fillRect(0, Math.random() * S, S, 1.5);
+    g.globalAlpha = 1;
+    for (let y = 32; y < S; y += 64) {
+      for (let x = 32; x < S; x += 64) {
+        g.fillStyle = 'rgba(255,255,255,0.16)';
+        g.beginPath();
+        g.arc(x, y, 3, 0, 7);
+        g.fill();
+      }
+    }
+  });
+
+  const orm = canvasTexture(S, S, (g) => {
+    const img = g.createImageData(S, S);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const h = at(x, y);
+        const i = (y * S + x) * 4;
+        img.data[i] = 236;
+        img.data[i + 1] = 52 + (1 - h) * 96;
+        img.data[i + 2] = 210;
+        img.data[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  });
+  orm.colorSpace = THREE.NoColorSpace;
+
+  for (const t of [map, normalMap, orm]) {
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+  }
+  return { map, normalMap, orm };
+}
+
 /* ---- Authored surface maps -------------------------------------------------
  * CC0 set: Poly Haven `asphalt_02` (albedo / OpenGL normal / ARM packed as
  * R=AO, G=roughness, B=metalness). Loaded once and cached, because level

@@ -3,7 +3,9 @@ import {
   canvasTexture,
   glowPlane,
   makeAsphaltRoadMaterial,
+  makeFacadeAtlas,
   makeKerbTexture,
+  makeMetalPlateMaps,
   makeRoadMarkingsTexture,
   makeRoadSurfaceTexture,
   makeWallTexture,
@@ -113,7 +115,8 @@ function wallGeometry(
   height: number,
   from: number,
   to: number,
-  taper?: boolean
+  taper?: boolean,
+  uvMetres?: number
 ): THREE.BufferGeometry {
   const pos: number[] = [];
   const uv: number[] = [];
@@ -128,8 +131,11 @@ function wallGeometry(
     const base = f.pos.clone().addScaledVector(f.s, offset * ws);
     const top = base.clone().addScaledVector(f.up, height);
     pos.push(base.x, base.y, base.z, top.x, top.y, top.z);
-    const v = (uRaw * trk.len) / 26;
-    uv.push(v, 0, v, 1);
+    // uvMetres tiles the wall in world metres (across the height as well), so
+    // panel maps keep a constant rivet/plate pitch instead of stretching 26 m
+    // of road along one texture and 3.8 m of height across the other axis.
+    const v = uvMetres ? (uRaw * trk.len) / uvMetres : (uRaw * trk.len) / 26;
+    uv.push(v, uvMetres ? height / uvMetres : 0, v, uvMetres ? height / uvMetres : 1);
     if (k < steps) {
       const j = k * 2;
       idx.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
@@ -345,30 +351,38 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
   for (let i = 0; i < 420; i++) citySamples.push(trk.curve.getPointAt(i / 420));
   const blocked = (p: THREE.Vector3, min: number) => citySamples.some((q) => q.distanceToSquared(p) < min * min);
 
-  const windowTex = canvasTexture(128, 256, (g) => {
-    g.fillStyle = '#0d1730';
-    g.fillRect(0, 0, 128, 256);
-    const cols = ['#00f0ff', '#f5c451', '#ff2e93', '#ffffff', '#00ffcc', '#8b5cf6'];
-    for (let y = 0; y < 8; y++) {
-      for (let x = 0; x < 4; x++) {
-        if (Math.random() < 0.32) continue;
-        g.fillStyle = cols[(Math.random() * cols.length) | 0];
-        g.globalAlpha = 0.35 + Math.random() * 0.45;
-        g.fillRect(x * 32 + 3, y * 32 + 4, 26, 22);
-      }
-    }
-    g.globalAlpha = 1;
-    g.fillStyle = '#1d2a52';
-    g.fillRect(0, 0, 128, 4);
-    g.fillRect(0, 252, 128, 4);
+  // Eight facade skins in one 2048² atlas with a matching emissive pass. Each
+  // tower family samples its own cell, and per-instance UV scaling (aUvScale)
+  // keeps the window pitch constant in metres instead of stretching a single
+  // 128 px canvas across a 1,000 m tower.
+  const facade = makeFacadeAtlas();
+  const towerMats = [0, 1, 2].map((cell) => {
+    const mat = new THREE.MeshStandardMaterial({
+      map: facade.map,
+      emissiveMap: facade.emissive,
+      emissive: 0xffffff,
+      emissiveIntensity: 1.05,
+      metalness: 0.4,
+      roughness: 0.58,
+      envMapIntensity: 0.85
+    });
+    const origin = new THREE.Vector2((cell % 4) / 4, 0.5);
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uCellOrigin = { value: origin };
+      shader.uniforms.uCellSize = { value: new THREE.Vector2(0.25, 0.5) };
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nattribute vec2 aUvScale;\nuniform vec2 uCellOrigin;\nuniform vec2 uCellSize;'
+        )
+        .replace(
+          '#include <uv_vertex>',
+          '#include <uv_vertex>\n  vec2 cellSpan = uCellSize - 0.008;\n  vUv = uCellOrigin + 0.004 + fract(vUv * aUvScale) * cellSpan;'
+        );
+    };
+    mat.customProgramCacheKey = () => 'facade-' + cell;
+    return mat;
   });
-  windowTex.wrapS = windowTex.wrapT = THREE.RepeatWrapping;
-
-  const towerMats = [
-    new THREE.MeshStandardMaterial({ color: 0x1a2244, emissive: 0x3a5ec0, emissiveMap: windowTex, emissiveIntensity: 1.4, metalness: 0.6, roughness: 0.4, map: windowTex }),
-    new THREE.MeshStandardMaterial({ color: 0x241c42, emissive: 0x7a35b0, emissiveMap: windowTex, emissiveIntensity: 1.3, metalness: 0.6, roughness: 0.42, map: windowTex }),
-    new THREE.MeshStandardMaterial({ color: 0x102a3a, emissive: 0x1a7d9e, emissiveMap: windowTex, emissiveIntensity: 1.35, metalness: 0.7, roughness: 0.35, map: windowTex })
-  ];
 
   interface TowerItem {
     p: THREE.Vector3;
@@ -396,7 +410,11 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
   const box = new THREE.BoxGeometry(1, 1, 1);
   for (let mIdx = 0; mIdx < 3; mIdx++) {
     const list = towers.filter((t) => t.mat === mIdx);
-    const mesh = new THREE.InstancedMesh(box, towerMats[mIdx], list.length);
+    // Instanced attributes live on the geometry, so each family needs its own
+    // copy of the box rather than sharing one buffer.
+    const geo = box.clone();
+    const uvScale = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 2), 2);
+    const mesh = new THREE.InstancedMesh(geo, towerMats[mIdx], list.length);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const sc = new THREE.Vector3();
@@ -404,7 +422,11 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
       sc.set(t.w, t.h + 330, t.d);
       m4.compose(new THREE.Vector3(t.p.x, (t.h + 330) / 2 - 440, t.p.z), q, sc);
       mesh.setMatrixAt(i, m4);
+      // one facade cell = 32 m wide × 64 m tall
+      uvScale.setXY(i, t.w / 32, (t.h + 330) / 64);
     });
+    geo.setAttribute('aUvScale', uvScale);
+    uvScale.needsUpdate = true;
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
@@ -2624,16 +2646,31 @@ export function buildWorld(
         : 'grid'
   );
   wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
-  const wallMat = new THREE.MeshBasicMaterial({
-    map: wallTex,
+  // Plated surfaces: the barrier keeps its emissive hex pattern, but now sits
+  // on a real metal panel with normal + packed ORM instead of being unlit.
+  const panel = makeMetalPlateMaps('#101a2e', def.theme.accent);
+  const wallMat = new THREE.MeshStandardMaterial({
+    map: panel.map,
+    normalMap: panel.normalMap,
+    roughnessMap: panel.orm,
+    metalnessMap: panel.orm,
+    emissive: 0xffffff,
+    emissiveMap: wallTex,
+    emissiveIntensity: 1.15,
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.62,
     side: THREE.DoubleSide,
-    toneMapped: false,
     depthWrite: false
   });
 
-  const deckMat = new THREE.MeshStandardMaterial({ color: 0x0b1226, metalness: 0.85, roughness: 0.42, side: THREE.DoubleSide });
+  const deckMat = new THREE.MeshStandardMaterial({
+    map: panel.map,
+    normalMap: panel.normalMap,
+    roughnessMap: panel.orm,
+    metalnessMap: panel.orm,
+    envMapIntensity: 0.9,
+    side: THREE.DoubleSide
+  });
   const trimA = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.accent).multiplyScalar(1.75), toneMapped: false, side: THREE.DoubleSide });
   const trimB = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.theme.secondary).multiplyScalar(1.75), toneMapped: false, side: THREE.DoubleSide });
   const noBarrierWarnMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3b5c').multiplyScalar(1.9), toneMapped: false, side: THREE.DoubleSide });
@@ -2656,17 +2693,17 @@ export function buildWorld(
     group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 1.8), 3.4, 0.11, a, b, 12, true), kerbMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 1.8, 3.4, 0.11, a, b, 12, true), kerbMat));
 
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, -6.8, a, b, 40, true), deckMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, -hw, -6.8, a, b, true), deckMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, hw, -6.8, a, b, true), deckMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, -6.8, a, b, 40, true, 16), deckMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, -hw, -6.8, a, b, true, 8), deckMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, hw, -6.8, a, b, true, 8), deckMat));
     group.add(new THREE.Mesh(wallGeometry(trk, -(hw + 0.2), -1.1, a, b, true), trimA));
     group.add(new THREE.Mesh(wallGeometry(trk, hw + 0.2, -1.1, a, b, true), trimB));
     group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 1.5, -7.2, a, b, 40, true), underGlow));
   }
 
   for (const [a, b] of barrierRanges) {
-    group.add(new THREE.Mesh(wallGeometry(trk, -(hw + 0.5), 3.8, a, b, true), wallMat));
-    group.add(new THREE.Mesh(wallGeometry(trk, hw + 0.5, 3.8, a, b, true), wallMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, -(hw + 0.5), 3.8, a, b, true, 4), wallMat));
+    group.add(new THREE.Mesh(wallGeometry(trk, hw + 0.5, 3.8, a, b, true, 4), wallMat));
     // Continuous glowing upper rail light strip along both barrier walls
     group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw + 0.3), 1.3, 1.9, a, b, 40, true), trimA));
     group.add(new THREE.Mesh(ribbonGeometry(trk, hw + 0.3, 1.3, 1.9, a, b, 40, true), trimB));
