@@ -42,6 +42,7 @@ export class SoundEngine {
   private musicTimer: number | null = null;
   private stepIdx = 0;
   private activeLevel = 0;
+  private musicMode: 'menu' | 'race' = 'menu';
 
   public isMuted(): boolean {
     return this.muted;
@@ -239,6 +240,16 @@ export class SoundEngine {
 
   public setLevel(levelIdx: number): void {
     this.activeLevel = levelIdx;
+  }
+
+  public setMusicMode(mode: 'menu' | 'race'): void {
+    if (this.musicMode === mode) return;
+    this.musicMode = mode;
+    this.stepIdx = 0;
+  }
+
+  public getMusicMode(): 'menu' | 'race' {
+    return this.musicMode;
   }
 
   public setMuted(muted: boolean): void {
@@ -448,9 +459,65 @@ export class SoundEngine {
       [73.42, 73.42, 87.31, 98, 110, 98, 87.31, 65.41] // Space Beach (D minor cosmic ocean)
     ];
 
+    // Dark UK Drill/Trap groove for car & level select menu ("CRO - No Hand Outs" vibe)
+    const menuSubNotes = [36.71, 0, 36.71, 41.2, 0, 36.71, 43.65, 36.71, 32.7, 0, 32.7, 36.71, 0, 41.2, 49, 41.2];
+    const menuBellNotes = [293.66, 0, 349.23, 0, 440, 0, 329.63, 0, 261.63, 0, 329.63, 0, 392, 0, 349.23, 0];
+
     this.musicTimer = window.setInterval(() => {
       if (!this.ctx || !this.musicGain || this.muted || this.radioOverride || this.ctx.state !== 'running') return;
       const now = this.ctx.currentTime;
+
+      if (this.musicMode === 'menu') {
+        const s = this.stepIdx % 16;
+        const subFreq = menuSubNotes[s];
+        if (subFreq > 0) {
+          const bOsc = this.ctx.createOscillator();
+          const bGain = this.ctx.createGain();
+          bOsc.type = 'sine';
+          bOsc.frequency.setValueAtTime(subFreq * 1.15, now);
+          bOsc.frequency.exponentialRampToValueAtTime(subFreq, now + 0.08);
+          bGain.gain.setValueAtTime(0.3, now);
+          bGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+          bOsc.connect(bGain);
+          bGain.connect(this.musicGain);
+          bOsc.start(now);
+          bOsc.stop(now + 0.25);
+        }
+
+        // Syncopated drill kick / snare cadence
+        if (s === 0 || s === 6 || s === 10) {
+          const kOsc = this.ctx.createOscillator();
+          const kGain = this.ctx.createGain();
+          kOsc.type = 'sine';
+          kOsc.frequency.setValueAtTime(125, now);
+          kOsc.frequency.exponentialRampToValueAtTime(38, now + 0.11);
+          kGain.gain.setValueAtTime(0.32, now);
+          kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+          kOsc.connect(kGain);
+          kGain.connect(this.musicGain);
+          kOsc.start(now);
+          kOsc.stop(now + 0.13);
+        }
+
+        // Dark plucked bell motif
+        const bell = menuBellNotes[s];
+        if (bell > 0) {
+          const mOsc = this.ctx.createOscillator();
+          const mGain = this.ctx.createGain();
+          mOsc.type = 'triangle';
+          mOsc.frequency.setValueAtTime(bell, now);
+          mGain.gain.setValueAtTime(0.09, now);
+          mGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+          mOsc.connect(mGain);
+          mGain.connect(this.musicGain);
+          mOsc.start(now);
+          mOsc.stop(now + 0.21);
+        }
+
+        this.stepIdx = (this.stepIdx + 1) % 16;
+        return;
+      }
+
       const scale = scales[this.activeLevel % scales.length];
       const bassFreq = scale[this.stepIdx % scale.length];
 

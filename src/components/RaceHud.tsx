@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, Pause, Radio, Volume2, VolumeX } from 'lucide-react';
 import { LEVELS } from '../game/tracks';
 import type { HudSnapshot } from '../game/types';
+import { Minimap } from './Minimap';
 import type { RadioStatus } from './RadioHub';
 import { WeatherIcon } from './WeatherIcons';
 
@@ -125,7 +126,7 @@ export const RaceHud: React.FC<RaceHudProps> = ({
         {/* Top Perimeter: Whisper-thin Position/Standings (Left) & Timer/Weather/Controls (Right) */}
         <div className="flex items-start justify-between gap-4">
           {/* Top-Left: Slim Position Header & Micro-Standings */}
-          <div className="flex flex-col items-start gap-1.5 max-w-[220px]">
+          <div className="flex flex-col items-start gap-1.5 max-w-[240px]">
             <div className="bg-[#050712]/62 border border-white/12 px-3 py-1.5 flex items-baseline gap-3">
               <span className="text-xl md:text-2xl font-black italic text-[#f5c451] tabular-nums leading-none">
                 P{hud.rank}
@@ -133,7 +134,12 @@ export const RaceHud: React.FC<RaceHudProps> = ({
                   /{hud.totalRacers}
                 </span>
               </span>
-              <div className="text-[10px] font-bold tracking-[0.16em] text-white/85 tabular-nums">
+              <div className="text-[10px] font-bold tracking-[0.16em] text-white/85 tabular-nums whitespace-nowrap">
+                {hud.grandPrix.active && (
+                  <span className="text-[#f5c451] mr-2">
+                    GP R{hud.grandPrix.roundIdx + 1}/{hud.grandPrix.totalRounds} ·
+                  </span>
+                )}
                 {hud.isSprint ? `SPRINT ${hud.progressPct}%` : `LAP ${hud.lap}/${hud.totalLaps}`}
               </div>
             </div>
@@ -289,14 +295,14 @@ export const RaceHud: React.FC<RaceHudProps> = ({
           </div>
         )}
 
-        {/* Bottom Perimeter: Contextual Drift (Left) · Control Hint (Center) · Speed/Core (Right) */}
+        {/* Bottom Perimeter: Contextual Drift & Holographic Minimap (Left) · Control Hint (Center) · Speed/Core (Right) */}
         <div className="flex items-end justify-between gap-4">
-          {/* Bottom-Left: Contextual Drift Meter (only shown when actively drifting or showing surge bonus) */}
-          <div className="min-w-[200px] hidden sm:block">
+          {/* Bottom-Left: Holographic Minimap + Contextual Drift Meter */}
+          <div className="flex flex-col items-start gap-1.5 shrink-0">
             {showDriftCard &&
               (hud.drift.active ? (
                 <div
-                  className="bg-[#050712]/72 border px-3 py-2 w-[236px]"
+                  className="bg-[#050712]/78 border px-3 py-1.5 w-[168px] sm:w-[196px]"
                   style={{ borderColor: driftTierHex }}
                 >
                   <div className="flex items-center justify-between gap-2 text-[9px] tracking-[0.16em]">
@@ -307,7 +313,7 @@ export const RaceHud: React.FC<RaceHudProps> = ({
                       +{hud.drift.liveScore}
                     </span>
                   </div>
-                  <div className="relative h-1.5 w-full bg-black/70 border border-white/15 mt-1.5 overflow-hidden">
+                  <div className="relative h-1.5 w-full bg-black/70 border border-white/15 mt-1 overflow-hidden">
                     <div
                       className="h-full transition-[width] duration-75"
                       style={{
@@ -320,10 +326,16 @@ export const RaceHud: React.FC<RaceHudProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="bg-[#050712]/72 border border-[#f5c451]/60 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-[#f5c451] inline-block tabular-nums">
+                <div className="bg-[#050712]/78 border border-[#f5c451]/60 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-[#f5c451] inline-block tabular-nums">
                   {hud.drift.lastBonusLabel}
                 </div>
               ))}
+
+            {/* Real-Time Holographic Track Minimap */}
+            <Minimap
+              minimap={hud.minimap}
+              className="w-[158px] sm:w-[188px] md:w-[204px]"
+            />
           </div>
 
           {/* Bottom-Center: Minimal control hint */}

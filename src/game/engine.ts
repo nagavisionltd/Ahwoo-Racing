@@ -11,9 +11,14 @@ import { radialTexture, setTextureMaxAnisotropy } from './textures';
 import { LEVELS } from './tracks';
 import type {
   GameStep,
+  GrandPrixStanding,
+  GrandPrixState,
   HazardAlert,
   HazardProximityAlert,
   HudSnapshot,
+  MinimapRacerMarker,
+  MinimapSnapshot,
+  RaceMode,
   StandingEntry,
   VehicleCustomization
 } from './types';
@@ -42,7 +47,15 @@ const CyberShader = {
     uBlueShift: { value: 0.0 },
     uSolarFlare: { value: 0.0 },
     uLightning: { value: 0.0 },
-    uTime: { value: 0.0 }
+    uTime: { value: 0.0 },
+    // Dynamic Weather-Driven Color Grading Uniforms
+    uGradeTint: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+    uGradeShadows: { value: new THREE.Vector3(0.0, 0.0, 0.0) },
+    uGradeContrast: { value: 1.0 },
+    uGradeSaturation: { value: 1.0 },
+    uGradeExposure: { value: 1.0 },
+    uAtmosphericHaze: { value: 0.0 },
+    uHazeColor: { value: new THREE.Vector3(0.05, 0.1, 0.2) }
   },
   vertexShader: `
     varying vec2 vUv;
@@ -60,6 +73,13 @@ const CyberShader = {
     uniform float uSolarFlare;
     uniform float uLightning;
     uniform float uTime;
+    uniform vec3 uGradeTint;
+    uniform vec3 uGradeShadows;
+    uniform float uGradeContrast;
+    uniform float uGradeSaturation;
+    uniform float uGradeExposure;
+    uniform float uAtmosphericHaze;
+    uniform vec3 uHazeColor;
     varying vec2 vUv;
 
     void main() {
@@ -76,11 +96,6 @@ const CyberShader = {
       float b = texture2D(tDiffuse, uv + bOffset).b;
       vec3 col = vec3(r, g, b);
 
-      if (uBlueShift > 0.001) {
-        vec3 tinted = vec3(col.r * 0.78, col.g * 1.06, col.b * 1.28);
-        col = mix(col, tinted, clamp(uBlueShift, 0.0, 1.0));
-      }
-
       if (uBlur > 0.001) {
         vec3 acc = col;
         for (int i = 1; i <= 6; i++) {
@@ -92,6 +107,38 @@ const CyberShader = {
         col = acc / 13.0;
       }
 
+      // --- Dynamic Weather-Driven Color Grading ---
+      // 1. Exposure grading
+      col *= uGradeExposure;
+
+      // 2. Atmospheric depth haze
+      if (uAtmosphericHaze > 0.001) {
+        float haze = smoothstep(0.08, 0.95, dist) * uAtmosphericHaze;
+        col = mix(col, uHazeColor, haze);
+      }
+
+      // 3. Contrast adjustment around 0.5 mid-grey
+      col = (col - 0.5) * uGradeContrast + 0.5;
+
+      // 4. Saturation adjustment
+      float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(vec3(luma), col, uGradeSaturation);
+
+      // 5. Shadow lift & color tinting
+      col = col * uGradeTint + uGradeShadows * (1.0 - clamp(col, 0.0, 1.0));
+
+      // 6. Overdrive boost blue shift
+      if (uBlueShift > 0.001) {
+        vec3 tinted = vec3(col.r * 0.78, col.g * 1.06, col.b * 1.28);
+        col = mix(col, tinted, clamp(uBlueShift, 0.0, 1.0));
+      }
+
+      // 7. Lightning flash illumination boost
+      if (uLightning > 0.001) {
+        col += vec3(0.32, 0.78, 1.0) * (uLightning * 0.28);
+      }
+
+      // 8. Solar flare corona & streaks
       if (uSolarFlare > 0.001) {
         float flareDist = length(uv - vec2(0.76, 0.78));
         float corona = exp(-flareDist * 3.4) * uSolarFlare;
@@ -99,13 +146,11 @@ const CyberShader = {
         col += vec3(1.0, 0.68, 0.28) * (corona * 0.24 + streak * 0.18);
       }
 
-      if (uLightning > 0.001) {
-        col += vec3(0.32, 0.78, 1.0) * (uLightning * 0.14);
-      }
-
+      // 9. Vignette
       float vig = smoothstep(1.25, 0.4, dist);
       col *= mix(1.0, vig, uVignette);
-      gl_FragColor = vec4(col, 1.0);
+
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
     }
   `
 };
@@ -343,6 +388,40 @@ export class AhwooEngine {
     distanceM: 999
   };
   private debrisAlertTimer = 0;
+
+  // Victory Lap cinematic barrel roll & slow-mo state
+  private victoryActive = false;
+  private victoryTimer = 0;
+  private readonly VICTORY_LAP_DUR = 4.6;
+
+  // Active Track Architecture lap/segment phase (1..3)
+  private currentArchPhase: 1 | 2 | 3 = 1;
+
+  // Grand Prix Championship state (4-round sequential tournament)
+  private raceMode: RaceMode = 'single';
+  private gpRoundIdx = 0;
+  private gpCompleted = false;
+  private gpRoundScoresRecorded = false;
+  private gpPointsByRacer: Record<string, GrandPrixStanding> = {};
+
+  // Dynamic Weather-Driven Color Grading & Bloom State
+  private curGradeTint = new THREE.Vector3(1.0, 1.0, 1.0);
+  private curGradeShadows = new THREE.Vector3(0.0, 0.0, 0.0);
+  private curGradeContrast = 1.0;
+  private curGradeSaturation = 1.0;
+  private curGradeExposure = 1.0;
+  private curHaze = 0.0;
+  private curHazeColor = new THREE.Vector3(0.05, 0.1, 0.2);
+  private curBloomStrength = 0.46;
+  private curBloomRadius = 0.32;
+  private curBloomThreshold = 1.0;
+
+  // Real-time Holographic Track Minimap Geometry
+  private minimapPathD = '';
+  private minimapStartFinish = { x: 50, y: 50 };
+  private minimapMidX = 0;
+  private minimapMidZ = 0;
+  private minimapMaxSpan = 1;
 
   private heldKeys: Record<string, boolean> = {};
   private frameId = 0;
@@ -652,6 +731,7 @@ export class AhwooEngine {
       }
     });
     this.weatherHazards = new WeatherHazardManager(def, this.world.trk, this.scene);
+    this.computeMinimapGeometry();
     if (this.bloomPass) {
       this.bloomPass.strength = def.look.bloom;
       this.bloomPass.radius = def.look.bloomRadius;
@@ -756,6 +836,8 @@ export class AhwooEngine {
     this.countdownTimers.forEach(clearTimeout);
     this.countdownTimers = [];
 
+    this.audio.setMusicMode(next === 'driver' || next === 'level' ? 'menu' : 'race');
+
     if (next === 'level' && this.activeLevel !== this.selectedLevel) {
       this.previewLevel(this.selectedLevel);
     }
@@ -778,15 +860,184 @@ export class AhwooEngine {
     this.emitHud(true);
   }
 
+  public getRaceMode(): RaceMode {
+    return this.raceMode;
+  }
+
+  public setRaceMode(mode: RaceMode): void {
+    this.audio.playUiClick();
+    this.raceMode = mode;
+    if (mode === 'grand_prix') {
+      this.initGrandPrixStandings();
+    } else {
+      this.gpRoundIdx = 0;
+      this.gpCompleted = false;
+      this.gpRoundScoresRecorded = false;
+    }
+    this.emitHud(true);
+  }
+
+  public enterGrandPrixFromHome(): void {
+    this.audio.playUiClick();
+    this.raceMode = 'grand_prix';
+    this.initGrandPrixStandings();
+    this.setStep('driver');
+  }
+
+  public startGrandPrixCup(): void {
+    this.audio.playUiClick();
+    this.raceMode = 'grand_prix';
+    this.initGrandPrixStandings();
+    this.selectedLevel = 0;
+    if (this.activeLevel !== 0) {
+      this.loadLevel(0);
+    }
+    this.syncGpRivalIdentities();
+    this.resetRaceState();
+    this.callbacks.onLevelChange(0, 0);
+    this.setStep('preview');
+  }
+
+  public nextGrandPrixRound(): void {
+    this.audio.playUiClick();
+    if (this.raceMode !== 'grand_prix') {
+      this.startCountdown();
+      return;
+    }
+    if (this.gpCompleted || this.gpRoundIdx >= LEVELS.length - 1) {
+      this.startGrandPrixCup();
+      return;
+    }
+    this.gpRoundIdx += 1;
+    this.gpRoundScoresRecorded = false;
+    const nextIdx = this.gpRoundIdx;
+    this.selectedLevel = nextIdx;
+    if (this.activeLevel !== nextIdx) {
+      this.loadLevel(nextIdx);
+    }
+    this.syncGpRivalIdentities();
+    this.resetRaceState();
+    this.callbacks.onLevelChange(nextIdx, nextIdx);
+    this.setStep('preview');
+  }
+
+  private initGrandPrixStandings(): void {
+    this.gpRoundIdx = 0;
+    this.gpCompleted = false;
+    this.gpRoundScoresRecorded = false;
+    this.gpPointsByRacer = {};
+
+    const pProf = SHIP_PROFILES[this.selectedShipId] || SHIP_PROFILES[0];
+    const pIdent = getPlayerIdentity(this.selectedShipId);
+    this.gpPointsByRacer['player'] = {
+      id: pProf.id,
+      racerId: pIdent.racerId,
+      teamName: pIdent.teamName,
+      shipName: pProf.name,
+      colorHex: pProf.hex,
+      isPlayer: true,
+      points: 0,
+      lastRoundPoints: 0,
+      lastRoundRank: 1
+    };
+
+    const ids = [0, 1, 2, 3].filter((id) => id !== this.selectedShipId);
+    const identities = generateRivalIdentities(ids.length);
+    ids.forEach((typeId, i) => {
+      const prof = SHIP_PROFILES[typeId] || SHIP_PROFILES[0];
+      const ident = identities[i];
+      this.gpPointsByRacer[`rival_${typeId}`] = {
+        id: typeId,
+        racerId: ident.racerId,
+        teamName: ident.teamName,
+        shipName: prof.name,
+        colorHex: prof.hex,
+        isPlayer: false,
+        points: 0,
+        lastRoundPoints: 0,
+        lastRoundRank: i + 2
+      };
+    });
+  }
+
+  private syncGpRivalIdentities(): void {
+    this.rivals.forEach((rv) => {
+      const stored = this.gpPointsByRacer[`rival_${rv.id}`];
+      if (stored) {
+        rv.racerId = stored.racerId;
+        rv.teamName = stored.teamName;
+      }
+    });
+  }
+
+  private recordGrandPrixFinish(): void {
+    if (this.raceMode !== 'grand_prix' || this.gpRoundScoresRecorded) return;
+    if (!this.gpPointsByRacer['player']) {
+      this.initGrandPrixStandings();
+    }
+
+    const trk = this.world?.trk;
+    const isSprint = !!trk?.def.isSprint;
+    const uNorm = Math.max(0, Math.min(1, isSprint ? this.S.u : ((this.S.u % 1) + 1) % 1));
+    const playerProgress = isSprint ? uNorm : this.S.lap - 1 + uNorm;
+
+    const entries: { key: string; progress: number; isPlayer: boolean }[] = [
+      { key: 'player', progress: playerProgress, isPlayer: true },
+      ...this.rivals.map((rv) => ({
+        key: `rival_${rv.id}`,
+        progress: isSprint ? Math.max(0, Math.min(1, rv.u)) : rv.lap - 1 + rv.u,
+        isPlayer: false
+      }))
+    ];
+    entries.sort((a, b) => b.progress - a.progress);
+
+    const ptsTable = [25, 18, 15, 12];
+    entries.forEach((entry, idx) => {
+      const pts = ptsTable[idx] ?? 8;
+      const target = this.gpPointsByRacer[entry.key];
+      if (target) {
+        target.points += pts;
+        target.lastRoundPoints = pts;
+        target.lastRoundRank = idx + 1;
+      }
+    });
+
+    this.gpRoundScoresRecorded = true;
+    if (this.gpRoundIdx >= LEVELS.length - 1) {
+      this.gpCompleted = true;
+    }
+  }
+
+  private buildGrandPrixState(): GrandPrixState {
+    const standings = Object.values(this.gpPointsByRacer)
+      .map((s) => ({ ...s }))
+      .sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return a.lastRoundRank - b.lastRoundRank;
+      });
+    return {
+      active: this.raceMode === 'grand_prix',
+      roundIdx: this.gpRoundIdx,
+      totalRounds: LEVELS.length,
+      completed: this.gpCompleted,
+      roundScoresRecorded: this.gpRoundScoresRecorded,
+      standings
+    };
+  }
+
   public selectShip(id: number): void {
     if (!SHIP_PROFILES[id]) return;
     this.audio.playUiClick();
     this.selectedShipId = id;
     this.rebuildPlayer();
     this.setupRivals(id);
+    if (this.raceMode === 'grand_prix') {
+      this.initGrandPrixStandings();
+    }
     this.updateTurntableModel();
     this.callbacks.onShipChange(id);
     this.callbacks.onCustomizationChange(this.getCustomization(id));
+    this.emitHud(true);
   }
 
   public cycleShip(dir: number): void {
@@ -849,11 +1100,15 @@ export class AhwooEngine {
 
   public startCountdown(): void {
     this.audio.unlock();
-    const identities = generateRivalIdentities(this.rivals.length);
-    this.rivals.forEach((r, i) => {
-      r.racerId = identities[i].racerId;
-      r.teamName = identities[i].teamName;
-    });
+    if (this.raceMode === 'grand_prix' && Object.keys(this.gpPointsByRacer).length > 0) {
+      this.syncGpRivalIdentities();
+    } else {
+      const identities = generateRivalIdentities(this.rivals.length);
+      this.rivals.forEach((r, i) => {
+        r.racerId = identities[i].racerId;
+        r.teamName = identities[i].teamName;
+      });
+    }
     this.resetRaceState();
     this.setStep('countdown');
     const seq: [string, number, boolean][] = [
@@ -1015,6 +1270,58 @@ export class AhwooEngine {
     this.camSpringVel.set(0, 0, 0);
     this.camRoll = 0;
     this.replayWasActive = false;
+    this.victoryActive = false;
+    this.victoryTimer = 0;
+    this.currentArchPhase = 1;
+    this.world?.trk.setLapPhase?.(1);
+    this.gpRoundScoresRecorded = false;
+  }
+
+  private computeMinimapGeometry(): void {
+    const trk = this.world?.trk;
+    if (!trk) return;
+    const N = 120;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    const rawPts: { x: number; z: number }[] = [];
+    const isSprint = !!trk.def.isSprint;
+
+    for (let i = 0; i <= N; i++) {
+      const u = isSprint ? i / N : (i / N) % 1;
+      const p = trk.curve.getPointAt(u);
+      rawPts.push({ x: p.x, z: p.z });
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+
+    const spanX = Math.max(10, maxX - minX);
+    const spanZ = Math.max(10, maxZ - minZ);
+    this.minimapMaxSpan = Math.max(spanX, spanZ);
+    this.minimapMidX = (minX + maxX) / 2;
+    this.minimapMidZ = (minZ + maxZ) / 2;
+
+    let d = '';
+    for (let i = 0; i < rawPts.length; i++) {
+      const nx = 50 + ((rawPts[i].x - this.minimapMidX) / this.minimapMaxSpan) * 78;
+      const ny = 50 + ((rawPts[i].z - this.minimapMidZ) / this.minimapMaxSpan) * 78;
+      d += `${i === 0 ? 'M' : 'L'}${nx.toFixed(1)},${ny.toFixed(1)} `;
+    }
+    if (!isSprint) d += 'Z';
+    this.minimapPathD = d;
+    const s0 = 50 + ((rawPts[0].x - this.minimapMidX) / this.minimapMaxSpan) * 78;
+    const s1 = 50 + ((rawPts[0].z - this.minimapMidZ) / this.minimapMaxSpan) * 78;
+    this.minimapStartFinish = { x: s0, y: s1 };
+  }
+
+  private projectToMinimap(x: number, z: number): { x: number; y: number } {
+    return {
+      x: 50 + ((x - this.minimapMidX) / this.minimapMaxSpan) * 78,
+      y: 50 + ((z - this.minimapMidZ) / this.minimapMaxSpan) * 78
+    };
   }
 
   private showSplit(txt: string): void {
@@ -1269,7 +1576,7 @@ export class AhwooEngine {
     }
   };
 
-  private stepSimulation(dt: number, now: number): void {
+  private stepSimulation(rawDt: number, now: number): void {
     const trk = this.world?.trk;
     const ship = this.player?.g;
     if (!trk || !ship || !this.player) return;
@@ -1277,11 +1584,30 @@ export class AhwooEngine {
     const prof = SHIP_PROFILES[this.selectedShipId];
     const S = this.S;
 
-    this.announcer.update(dt);
+    this.announcer.update(rawDt);
 
     if (this.hitstopTimer > 0) {
-      this.hitstopTimer = Math.max(0, this.hitstopTimer - dt);
+      this.hitstopTimer = Math.max(0, this.hitstopTimer - rawDt);
       return;
+    }
+
+    // Cinematic slow-motion curve during post-finish Victory Lap barrel roll
+    let dt = rawDt;
+    if (this.step === 'results' && this.victoryActive) {
+      this.victoryTimer += rawDt;
+      const tV = this.victoryTimer;
+      let timeScale = 1.0;
+      if (tV < 0.45) {
+        timeScale = THREE.MathUtils.lerp(1.0, 0.28, tV / 0.45);
+      } else if (tV < 2.95) {
+        timeScale = 0.28;
+      } else if (tV < this.VICTORY_LAP_DUR) {
+        timeScale = THREE.MathUtils.lerp(0.28, 1.0, (tV - 2.95) / (this.VICTORY_LAP_DUR - 2.95));
+      } else {
+        this.victoryActive = false;
+        this.emitHud(true);
+      }
+      dt = rawDt * timeScale;
     }
 
     if (S.run) {
@@ -1467,6 +1793,7 @@ export class AhwooEngine {
           ob.cool -= dt;
           continue;
         }
+        if (ob.active === false || ob.r <= 0.1) continue;
         if (ship.position.distanceToSquared(ob.pos) < (ob.r + 2.4) ** 2) {
           const dir = Math.sign(S.x - ob.off) || 1;
           S.vx = dir * 58;
@@ -1514,6 +1841,22 @@ export class AhwooEngine {
         if (S.t > 1) this.showSplit(`SECTOR ${sec + 1} · ${split.toFixed(2)}s`);
       }
 
+      // Dynamic Active Track Architecture: shift arches & lane barriers per lap (or sprint thirds)
+      const targetArchPhase: 1 | 2 | 3 = trk.def.isSprint
+        ? S.u < 0.33
+          ? 1
+          : S.u < 0.66
+            ? 2
+            : 3
+        : (Math.min(TOTAL_LAPS, Math.max(1, S.lap)) as 1 | 2 | 3);
+      if (targetArchPhase !== this.currentArchPhase) {
+        this.currentArchPhase = targetArchPhase;
+        trk.setLapPhase?.(targetArchPhase);
+        if (trk.def.isSprint || targetArchPhase > 1) {
+          this.showSplit(`ARCHITECTURE SHIFT // PHASE ${targetArchPhase}`);
+        }
+      }
+
       if (trk.def.isSprint) {
         if (S.u >= 0.992) {
           S.u = 0.992;
@@ -1524,9 +1867,17 @@ export class AhwooEngine {
           }
           S.run = false;
           S.done = true;
+          this.victoryActive = true;
+          this.victoryTimer = 0;
+          if (this.raceMode === 'grand_prix') {
+            this.recordGrandPrixFinish();
+          }
           this.audio.playLap(true);
           this.audio.updateEngine(0, false, false);
           this.audio.updateDriftSound(false, 0, 0);
+          this.showSplit(
+            this.raceMode === 'grand_prix' ? 'VICTORY LAP // GP ROUND FINISH' : 'VICTORY LAP // 胜利巡航'
+          );
           this.setStep('results');
         }
       } else if (S.u >= 1) {
@@ -1552,9 +1903,17 @@ export class AhwooEngine {
             }
             S.run = false;
             S.done = true;
+            this.victoryActive = true;
+            this.victoryTimer = 0;
+            if (this.raceMode === 'grand_prix') {
+              this.recordGrandPrixFinish();
+            }
             this.audio.playLap(true);
             this.audio.updateEngine(0, false, false);
             this.audio.updateDriftSound(false, 0, 0);
+            this.showSplit(
+              this.raceMode === 'grand_prix' ? 'VICTORY LAP // GP ROUND FINISH' : 'VICTORY LAP // 胜利巡航'
+            );
             this.setStep('results');
           } else {
             this.audio.playLap(false);
@@ -1566,9 +1925,9 @@ export class AhwooEngine {
     } else if (this.step === 'results') {
       // Post-race autonomous victory cruise so the cinematic replay camera has continuous high-speed action
       const isSprintCruise = !!trk.def.isSprint;
-      const targetCruiseV = MAXV * 0.88;
+      const targetCruiseV = this.victoryActive ? MAXV * 1.18 : MAXV * 0.88;
       S.v += (targetCruiseV - S.v) * (1 - Math.exp(-dt * 2.2));
-      const targetLaneX = Math.sin(now * 0.00085) * trk.hw * 0.32;
+      const targetLaneX = this.victoryActive ? 0 : Math.sin(now * 0.00085) * trk.hw * 0.32;
       S.vx = (targetLaneX - S.x) * 2.2;
       S.x += S.vx * dt;
       S.steer += (S.vx / 95 - S.steer) * Math.min(1, dt * 4);
@@ -1602,11 +1961,15 @@ export class AhwooEngine {
     const pf1 = trk.fr(clampU(u + probeDu));
     const liveArcStretch = Math.min(3.5, Math.max(1.0, pf0.pos.distanceTo(pf1.pos) / (probeDu * trk.len)));
 
+    const victoryArcLift =
+      this.step === 'results' && this.victoryActive
+        ? Math.sin(Math.min(1, this.victoryTimer / this.VICTORY_LAP_DUR) * Math.PI) * 4.4
+        : 0;
     const hoverBob = S.run || this.step === 'results' ? Math.sin(now * 0.008) * 0.1 : Math.sin(now * 0.003) * 0.2;
     ship.position
       .copy(F.pos)
       .addScaledVector(F.s, S.x)
-      .addScaledVector(F.up, 2.15 + S.airY + hoverBob);
+      .addScaledVector(F.up, 2.15 + S.airY + hoverBob + victoryArcLift);
 
     _vecNegS.copy(F.s).negate();
     _mat4.makeBasis(_vecNegS, F.up, F.t);
@@ -1624,14 +1987,21 @@ export class AhwooEngine {
     const pitch = Math.max(-0.85, Math.min(0.85, Math.atan2(_vecC.dot(F.up), Math.max(0.5, _vecC.dot(F.t)))));
     ship.rotateX(-pitch);
     ship.rotateY(-S.vx * 0.0007 - S.driftAngle);
-    ship.rotateZ(S.steer * 0.038 + S.vx * 0.0016 + S.driftAngle * 0.18 + S.hitSpin);
+
+    let victoryBarrelRoll = 0;
+    if (this.step === 'results' && this.victoryActive) {
+      const rollPhase = THREE.MathUtils.clamp((this.victoryTimer - 0.35) / 2.85, 0, 1);
+      const smoothRoll = rollPhase * rollPhase * (3 - 2 * rollPhase);
+      victoryBarrelRoll = smoothRoll * Math.PI * 2;
+    }
+    ship.rotateZ(S.steer * 0.038 + S.vx * 0.0016 + S.driftAngle * 0.18 + S.hitSpin + victoryBarrelRoll);
 
     const replayMode = this.step === 'paused' || this.step === 'results';
     const racing = this.step === 'race' || this.step === 'countdown';
     const isBoosting =
       ((this.heldKeys.Space || this.heldKeys.KeyC) && S.e > 0.02 && S.run) ||
       S.boost > 0 ||
-      (this.step === 'results' && Math.sin(now * 0.0014) > 0.45);
+      (this.step === 'results' && (this.victoryActive || Math.sin(now * 0.0014) > 0.45));
 
     this.audio.updateEngine(Math.min(1.5, S.v / MAXV), isBoosting, this.step === 'race' && S.run);
     this.audio.updateDriftSound(
@@ -2079,6 +2449,26 @@ export class AhwooEngine {
       this.spawnTrailParticle(_vecA);
       this.spawnTrailParticle(_vecB);
       if (isBoosting && Math.random() < 0.35) this.spawnSparks(ship.position, 6);
+      if (this.step === 'results' && this.victoryActive) {
+        // Celebratory Victory Lap thruster flare & wingtip gold/cyan neon trail ribbons
+        for (let k = 0; k < 4; k++) {
+          const wingSide = k % 2 === 0 ? -1.7 : 1.7;
+          const tier = k % 2 === 0 ? 3 : 1;
+          _vecA
+            .copy(ship.position)
+            .addScaledVector(F.s, wingSide)
+            .addScaledVector(F.t, -2.5)
+            .addScaledVector(F.up, Math.sin(victoryBarrelRoll) * wingSide * 0.4);
+          this.spawnDriftNeonParticle(
+            _vecA,
+            F.t.x * -24 + (Math.random() - 0.5) * 14,
+            F.t.y * -24 + (Math.random() - 0.5) * 14,
+            F.t.z * -24 + (Math.random() - 0.5) * 14,
+            tier,
+            0.9
+          );
+        }
+      }
       if (S.driftActive && S.run) {
         // Tier-colored trailing neon particles: Blue (0) -> Cyan (1) -> Magenta (2) -> Gold (3)
         const emitCount = 2 + S.driftTier * 2;
@@ -2287,7 +2677,7 @@ export class AhwooEngine {
 
           for (let oi = 0; oi < trk.obstacles.length; oi++) {
             const ob = trk.obstacles[oi];
-            if (ob.cool > 0) continue;
+            if (ob.cool > 0 || ob.active === false || ob.r <= 0.1) continue;
             _vecA.subVectors(ob.pos, ship.position);
             const dotFwd = _vecA.dot(F.t);
             if (dotFwd <= 0 || dotFwd > obsLookahead) continue;
@@ -2372,9 +2762,75 @@ export class AhwooEngine {
         }
       }
 
+      // Dynamic weather-driven color grading and bloom intensity adjustments
+      const defLook = LEVELS[this.activeLevel].look;
+      const targetTint = _vecA.set(1.0, 1.0, 1.0);
+      const targetShadows = _vecB.set(0.0, 0.0, 0.0);
+      let targetContrast = 1.0;
+      let targetSaturation = 1.0;
+      let targetExposure = defLook.exposure;
+      let targetHaze = 0.0;
+      const targetHazeColor = _vecC.set(0.05, 0.1, 0.2);
+
+      let targetBloomStrength = defLook.bloom;
+      let targetBloomRadius = defLook.bloomRadius;
+      let targetBloomThreshold = defLook.bloomThreshold;
+
+      if (wSnap.kind === 'rain') {
+        // Rain / Neon Downpour / Electric Squall: High contrast, deep cool shadows, vibrant neon saturation, lightning surges
+        targetTint.set(0.86, 1.06, 1.25);
+        targetShadows.set(0.015, 0.035, 0.08);
+        targetContrast = 1.14;
+        targetSaturation = 1.22;
+        targetExposure = defLook.exposure * (1.0 + wSnap.lightningFlash * 0.35);
+        targetHaze = 0.05 * wSnap.intensity;
+        targetHazeColor.set(0.06, 0.12, 0.28);
+        targetBloomStrength = Math.min(0.88, defLook.bloom + 0.08 + wSnap.intensity * 0.12 + wSnap.lightningFlash * 0.42);
+        targetBloomRadius = defLook.bloomRadius + 0.06;
+        targetBloomThreshold = Math.max(0.68, defLook.bloomThreshold - 0.14 - wSnap.lightningFlash * 0.3);
+      } else if (wSnap.kind === 'mist') {
+        // Mist / Tidal Ion Mist: Aquamarine ocean mist, soft lifted shadows, lower contrast, diffused glow & atmospheric haze
+        targetTint.set(0.92, 1.15, 1.12);
+        targetShadows.set(0.055, 0.085, 0.10);
+        targetContrast = 0.92;
+        targetSaturation = 0.94;
+        targetExposure = defLook.exposure * 1.04;
+        targetHaze = 0.18 * wSnap.intensity;
+        targetHazeColor.set(0.18, 0.44, 0.50);
+        targetBloomStrength = Math.min(0.85, defLook.bloom + 0.14 + wSnap.intensity * 0.18);
+        targetBloomRadius = 0.58;
+        targetBloomThreshold = Math.max(0.64, defLook.bloomThreshold - 0.24);
+      } else {
+        // Solar / Coronal Storm: Warm golden-amber cosmic radiation, sharp contrast, intense corona bloom
+        targetTint.set(1.24, 1.08, 0.82);
+        targetShadows.set(0.038, 0.018, 0.008);
+        targetContrast = 1.16;
+        targetSaturation = 1.08;
+        targetExposure = defLook.exposure * (1.04 + wSnap.solarPulse * 0.34);
+        targetHaze = 0.12 * wSnap.solarPulse;
+        targetHazeColor.set(0.48, 0.28, 0.08);
+        targetBloomStrength = Math.min(0.92, defLook.bloom + 0.16 + wSnap.intensity * 0.12 + wSnap.solarPulse * 0.42);
+        targetBloomRadius = 0.52 + wSnap.solarPulse * 0.18;
+        targetBloomThreshold = Math.max(0.60, defLook.bloomThreshold - 0.22 - wSnap.solarPulse * 0.24);
+      }
+
+      const blendRate = 1 - Math.exp(-dt * 4.5);
+      this.curGradeTint.lerp(targetTint, blendRate);
+      this.curGradeShadows.lerp(targetShadows, blendRate);
+      this.curGradeContrast += (targetContrast - this.curGradeContrast) * blendRate;
+      this.curGradeSaturation += (targetSaturation - this.curGradeSaturation) * blendRate;
+      this.curGradeExposure += (targetExposure - this.curGradeExposure) * blendRate;
+      this.curHaze += (targetHaze - this.curHaze) * blendRate;
+      this.curHazeColor.lerp(targetHazeColor, blendRate);
+
+      this.curBloomStrength += (targetBloomStrength - this.curBloomStrength) * blendRate;
+      this.curBloomRadius += (targetBloomRadius - this.curBloomRadius) * blendRate;
+      this.curBloomThreshold += (targetBloomThreshold - this.curBloomThreshold) * blendRate;
+
       if (this.bloomPass) {
-        const defLook = LEVELS[this.activeLevel].look;
-        this.bloomPass.strength = Math.min(0.68, defLook.bloom + this.weather.getBloomAdd());
+        this.bloomPass.strength = this.curBloomStrength;
+        this.bloomPass.radius = this.curBloomRadius;
+        this.bloomPass.threshold = this.curBloomThreshold;
       }
     }
 
@@ -2387,6 +2843,13 @@ export class AhwooEngine {
       this.cyberPass.uniforms.uSolarFlare.value = this.weather ? this.weather.getSolarFlareUniform() : 0;
       this.cyberPass.uniforms.uLightning.value = this.weather ? this.weather.getLightningFlash() : 0;
       this.cyberPass.uniforms.uTime.value = now * 0.001;
+      this.cyberPass.uniforms.uGradeTint.value.copy(this.curGradeTint);
+      this.cyberPass.uniforms.uGradeShadows.value.copy(this.curGradeShadows);
+      this.cyberPass.uniforms.uGradeContrast.value = this.curGradeContrast;
+      this.cyberPass.uniforms.uGradeSaturation.value = this.curGradeSaturation;
+      this.cyberPass.uniforms.uGradeExposure.value = this.curGradeExposure;
+      this.cyberPass.uniforms.uAtmosphericHaze.value = this.curHaze;
+      this.cyberPass.uniforms.uHazeColor.value.copy(this.curHazeColor);
     }
   }
 
@@ -2439,6 +2902,76 @@ export class AhwooEngine {
       if (entry.isPlayer) rank = entry.rank;
     });
 
+    const pPt = this.projectToMinimap(this.player?.g.position.x ?? 0, this.player?.g.position.z ?? 0);
+    const pTangent = trk?.fr(uNorm).t;
+    const pAngleDeg = pTangent ? Math.atan2(pTangent.z, pTangent.x) * (180 / Math.PI) : 0;
+
+    const playerMarker: MinimapRacerMarker = {
+      id: playerProfile.id,
+      racerId: playerIdent.racerId,
+      colorHex: playerProfile.hex,
+      isPlayer: true,
+      rank,
+      x: pPt.x,
+      y: pPt.y,
+      angleDeg: pAngleDeg,
+      distM: 0,
+      isAhead: false,
+      isBehind: false
+    };
+
+    let closestAhead: { racerId: string; colorHex: string; distM: number; rank: number } | null = null;
+    let closestBehind: { racerId: string; colorHex: string; distM: number; rank: number } | null = null;
+    let minAheadDist = Infinity;
+    let minBehindDist = Infinity;
+
+    const opponentMarkers: MinimapRacerMarker[] = this.rivals.map((rv) => {
+      const prof = SHIP_PROFILES[rv.id] || SHIP_PROFILES[0];
+      const rPt = this.projectToMinimap(rv.g.position.x, rv.g.position.z);
+      const rTangent = trk?.fr(rv.u).t;
+      const rAngleDeg = rTangent ? Math.atan2(rTangent.z, rTangent.x) * (180 / Math.PI) : 0;
+
+      const rivalProgress = isSprint ? Math.max(0, Math.min(1, rv.u)) : rv.lap - 1 + rv.u;
+      const deltaProgress = rivalProgress - playerProgress;
+      const distM = Math.round(deltaProgress * (trk?.len ?? 1000));
+      const isAhead = distM > 0;
+      const isBehind = distM < 0;
+
+      const oppRank = unsorted.find((e) => e.racerId === rv.racerId)?.rank ?? 1;
+
+      if (isAhead && distM < minAheadDist) {
+        minAheadDist = distM;
+        closestAhead = {
+          racerId: rv.racerId,
+          colorHex: prof.hex,
+          distM,
+          rank: oppRank
+        };
+      } else if (isBehind && Math.abs(distM) < minBehindDist) {
+        minBehindDist = Math.abs(distM);
+        closestBehind = {
+          racerId: rv.racerId,
+          colorHex: prof.hex,
+          distM,
+          rank: oppRank
+        };
+      }
+
+      return {
+        id: rv.id,
+        racerId: rv.racerId,
+        colorHex: prof.hex,
+        isPlayer: false,
+        rank: oppRank,
+        x: rPt.x,
+        y: rPt.y,
+        angleDeg: rAngleDeg,
+        distM,
+        isAhead,
+        isBehind
+      };
+    });
+
     this.callbacks.onHudUpdate({
       speedKmh: Math.round(S.v * 3.2),
       speedNorm: S.v / (MAXV * 1.45),
@@ -2459,6 +2992,9 @@ export class AhwooEngine {
       splitText: this.splitText,
       splitActive: this.splitText.length > 0,
       reconSecondsLeft: this.reconSecondsLeft,
+      victoryLapActive: this.step === 'results' && this.victoryActive,
+      archPhase: this.currentArchPhase,
+      grandPrix: this.buildGrandPrixState(),
       weather: this.weather
         ? this.weather.getSnapshot()
         : {
@@ -2481,6 +3017,17 @@ export class AhwooEngine {
         liveScore: S.driftLiveScore,
         totalScore: S.totalDriftScore,
         lastBonusLabel: S.driftBonusLabel
+      },
+      minimap: {
+        circuitId: trk?.def.id ?? 'neon',
+        circuitName: trk?.def.name ?? 'NEON SPRAWL',
+        pathD: this.minimapPathD,
+        isSprint,
+        startFinish: this.minimapStartFinish,
+        player: playerMarker,
+        opponents: opponentMarkers,
+        closestAhead,
+        closestBehind
       },
       announcer: this.announcer.getSnapshot(),
       replayShot: REPLAY_SHOTS[this.replayShotIdx]?.label || 'WIDE · CRANE SWEEP',

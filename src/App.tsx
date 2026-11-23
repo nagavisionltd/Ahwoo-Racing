@@ -8,6 +8,7 @@ import { RadioHub, type RadioStatus } from './components/RadioHub';
 import { ReconOverlay } from './components/ReconOverlay';
 import { ResultsModal } from './components/ResultsModal';
 import { TitleScreen } from './components/TitleScreen';
+import { WeatherEngine } from './components/WeatherEngine';
 import { AhwooEngine } from './game/engine';
 import type { GameStep, HudSnapshot, VehicleCustomization } from './game/types';
 import { getDefaultCustomization } from './game/vehicles';
@@ -32,6 +33,16 @@ const INITIAL_HUD: HudSnapshot = {
   splitText: '',
   splitActive: false,
   reconSecondsLeft: 6,
+  victoryLapActive: false,
+  archPhase: 1,
+  grandPrix: {
+    active: false,
+    roundIdx: 0,
+    totalRounds: 4,
+    completed: false,
+    roundScoresRecorded: false,
+    standings: []
+  },
   weather: {
     phaseId: 'neon_downpour',
     label: 'NEON DOWNPOUR',
@@ -62,6 +73,29 @@ const INITIAL_HUD: HudSnapshot = {
     liveScore: 0,
     totalScore: 0,
     lastBonusLabel: ''
+  },
+  minimap: {
+    circuitId: 'neon',
+    circuitName: 'NEON SPRAWL',
+    pathD: '',
+    isSprint: false,
+    startFinish: { x: 50, y: 50 },
+    player: {
+      id: 0,
+      racerId: 'P-01',
+      colorHex: '#00f0ff',
+      isPlayer: true,
+      rank: 1,
+      x: 50,
+      y: 50,
+      angleDeg: 0,
+      distM: 0,
+      isAhead: false,
+      isBehind: false
+    },
+    opponents: [],
+    closestAhead: null,
+    closestBehind: null
   },
   announcer: {
     enabled: true,
@@ -96,7 +130,7 @@ export default function App() {
   const [radioStatus, setRadioStatus] = useState<RadioStatus>({
     playing: false,
     ready: false,
-    source: 'spotify'
+    source: 'no_handouts'
   });
 
   useEffect(() => {
@@ -156,13 +190,16 @@ export default function App() {
     <div className="relative w-full h-full overflow-hidden bg-[#050712]">
       {/* Isolated WebGL canvas mount — React state updates never re-create or tear down the canvas */}
       <div ref={canvasMountRef} className="fixed inset-0 z-0" />
+      <WeatherEngine weather={hud.weather} speedNorm={hud.speedNorm} step={step} />
 
       {step === 'home' && (
         <TitleScreen
           onStart={() => {
             engineRef.current?.audio.playUiClick();
+            engineRef.current?.setRaceMode('single');
             engineRef.current?.setStep('driver');
           }}
+          onGrandPrix={() => engineRef.current?.enterGrandPrixFromHome()}
           muted={hud.muted}
           onToggleMute={handleToggleMute}
         />
@@ -190,9 +227,12 @@ export default function App() {
         <CircuitSelect
           selectedLevel={selectedLevel}
           previewLevelIdx={previewLevelIdx}
+          raceMode={hud.grandPrix.active ? 'grand_prix' : 'single'}
+          onSetRaceMode={(mode) => engineRef.current?.setRaceMode(mode)}
           onPreviewLevel={(idx) => engineRef.current?.previewLevel(idx)}
           onSelectLevel={(idx) => engineRef.current?.selectLevelOnly(idx)}
           onCommitLevel={(idx) => engineRef.current?.commitLevel(idx)}
+          onStartGrandPrix={() => engineRef.current?.startGrandPrixCup()}
           onBack={() => {
             engineRef.current?.audio.playUiClick();
             engineRef.current?.setStep('driver');
@@ -245,15 +285,18 @@ export default function App() {
           hud={hud}
           onCutCamera={() => engineRef.current?.cutReplayCamera()}
           onRaceAgain={() => engineRef.current?.startCountdown()}
+          onNextGpRound={() => engineRef.current?.nextGrandPrixRound()}
           onChangeCircuit={() => engineRef.current?.setStep('level')}
           onGarage={() => engineRef.current?.setStep('driver')}
         />
       )}
 
-      {/* Persistent Spotify Radio Hub mounted across all screens */}
+      {/* Persistent Radio Hub mounted across all screens */}
       <RadioHub
         open={radioOpen}
         muted={hud.muted}
+        step={step}
+        selectedLevel={selectedLevel}
         showFloatingTrigger={!isInRaceHud && step !== 'paused'}
         onToggleOpen={() => setRadioOpen((v) => !v)}
         onStatusChange={setRadioStatus}

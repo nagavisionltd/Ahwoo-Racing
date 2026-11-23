@@ -104,6 +104,7 @@ export interface TrackObstacle {
   off: number;
   r: number;
   cool: number;
+  active?: boolean;
 }
 
 export interface ElevationModel {
@@ -139,6 +140,7 @@ export interface TrackData {
   pads: number[];
   obstacles: TrackObstacle[];
   anim: ((dt: number, now: number) => void)[];
+  setLapPhase?: (phase: 1 | 2 | 3) => void;
 }
 
 export type WeatherKind = 'rain' | 'mist' | 'solar';
@@ -304,6 +306,55 @@ export interface StandingEntry {
   progress: number;
 }
 
+export interface MinimapRacerMarker {
+  id: number;
+  racerId: string;
+  colorHex: string;
+  isPlayer: boolean;
+  rank: number;
+  x: number;
+  y: number;
+  angleDeg: number;
+  distM: number;
+  isAhead: boolean;
+  isBehind: boolean;
+}
+
+export interface MinimapSnapshot {
+  circuitId: string;
+  circuitName: string;
+  pathD: string;
+  isSprint: boolean;
+  startFinish: { x: number; y: number };
+  player: MinimapRacerMarker;
+  opponents: MinimapRacerMarker[];
+  closestAhead: { racerId: string; colorHex: string; distM: number; rank: number } | null;
+  closestBehind: { racerId: string; colorHex: string; distM: number; rank: number } | null;
+}
+
+export type RaceMode = 'single' | 'grand_prix';
+
+export interface GrandPrixStanding {
+  id: number;
+  racerId: string;
+  teamName: string;
+  shipName: string;
+  colorHex: string;
+  isPlayer: boolean;
+  points: number;
+  lastRoundPoints: number;
+  lastRoundRank: number;
+}
+
+export interface GrandPrixState {
+  active: boolean;
+  roundIdx: number; // 0-indexed (0..totalRounds-1)
+  totalRounds: number;
+  completed: boolean;
+  roundScoresRecorded: boolean;
+  standings: GrandPrixStanding[];
+}
+
 export interface HudSnapshot {
   speedKmh: number;
   speedNorm: number;
@@ -324,10 +375,14 @@ export interface HudSnapshot {
   splitText: string;
   splitActive: boolean;
   reconSecondsLeft: number;
+  victoryLapActive: boolean;
+  archPhase: number;
+  grandPrix: GrandPrixState;
   weather: WeatherSnapshot;
   hazardAlert: HazardAlert;
   hazardProximity: HazardProximityAlert;
   drift: DriftSnapshot;
+  minimap: MinimapSnapshot;
   announcer: AnnouncerSnapshot;
   replayShot: string;
   trackStats: {

@@ -2,11 +2,12 @@ import React from 'react';
 
 interface TitleScreenProps {
   onStart: () => void;
+  onGrandPrix: () => void;
   muted: boolean;
   onToggleMute: () => void;
 }
 
-export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onToggleMute }) => {
+export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, muted, onToggleMute }) => {
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-between p-5 md:p-8 bg-gradient-to-r from-[#050712]/72 via-[#050712]/24 to-transparent">
       {/* Top minimal bar: brand kicker + audio toggle */}
@@ -18,7 +19,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onTogg
         <button
           type="button"
           onClick={onToggleMute}
-          className="nav-chip px-3.5 py-1.5 text-[10px] font-bold tracking-[0.2em] text-[#d8e6ff] cursor-pointer"
+          className="nav-chip px-3.5 py-1.5 text-[10px] font-bold tracking-[0.2em] text-[#d8e6ff] whitespace-nowrap shrink-0 cursor-pointer"
         >
           {muted ? 'AUDIO OFF [M]' : 'AUDIO ON [M]'}
         </button>
@@ -28,7 +29,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onTogg
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center my-auto max-w-7xl w-full mx-auto">
         <div className="lg:col-span-7 flex flex-col items-start text-left">
           <div className="text-[11px] tracking-[0.34em] text-[#00f0ff] font-bold mb-3">
-            FUTURISTIC HOVER HYPERCARS · THREE WORLDS
+            FUTURISTIC HOVER HYPERCARS · FOUR CIRCUITS
           </div>
 
           {/* Bespoke inline SVG Title Lockup */}
@@ -84,17 +85,30 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, muted, onTogg
             EMERALD TIDELINES, AND DEEP-SPACE WORMHOLES.
           </p>
 
-          <div className="flex flex-wrap items-center gap-5">
+          <div className="flex flex-wrap items-center gap-4">
             <button
               type="button"
               onClick={onStart}
-              className="cta-btn px-10 py-4 cursor-pointer flex flex-col items-start"
+              className="cta-btn px-8 py-3.5 cursor-pointer flex flex-col items-start whitespace-nowrap shrink-0"
             >
               <span className="text-base md:text-lg font-black tracking-[0.2em] text-white">
                 ENTER SHOWROOM
               </span>
               <span className="font-kanji text-[10px] tracking-[0.32em] text-[#f5c451]">
                 进入车库 · SELECT VEHICLE
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onGrandPrix}
+              className="nav-chip px-6 py-3.5 border border-[#f5c451]/70 bg-[#0b1328]/80 hover:border-[#f5c451] cursor-pointer flex flex-col items-start whitespace-nowrap shrink-0"
+            >
+              <span className="text-sm md:text-base font-black tracking-[0.18em] text-[#f5c451]">
+                GRAND PRIX CUP
+              </span>
+              <span className="text-[10px] tracking-[0.22em] text-[#00f0ff]">
+                4-ROUND CHAMPIONSHIP
               </span>
             </button>
 

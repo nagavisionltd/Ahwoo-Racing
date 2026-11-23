@@ -25,7 +25,21 @@ const _q = new THREE.Quaternion();
 const _sc = new THREE.Vector3();
 const _euler = new THREE.Euler();
 const _col = new THREE.Color();
+const _colTarget = new THREE.Color();
 const _one = new THREE.Vector3(1, 1, 1);
+
+interface ActiveArchEntry {
+  beam: THREE.Mesh;
+  beamNeon: THREE.Mesh;
+  sign: THREE.Mesh;
+  neonMat: THREE.MeshBasicMaterial;
+  baseColor: THREE.Color;
+  altColorP2: THREE.Color;
+  altColorP3: THREE.Color;
+  index: number;
+}
+
+const _archRegistry = new WeakMap<TrackData, ActiveArchEntry[]>();
 
 export function disposeGroup(g: THREE.Group, scene: THREE.Scene): void {
   g.traverse((o) => {
@@ -190,6 +204,24 @@ function arch(
   sign.rotation.y = Math.PI;
   g.add(sign);
   group.add(g);
+
+  if (!allowInSpecial) {
+    let list = _archRegistry.get(trk);
+    if (!list) {
+      list = [];
+      _archRegistry.set(trk, list);
+    }
+    list.push({
+      beam,
+      beamNeon,
+      sign,
+      neonMat,
+      baseColor: new THREE.Color(color),
+      altColorP2: new THREE.Color(list.length % 2 === 0 ? '#ff2e93' : '#00f0ff'),
+      altColorP3: new THREE.Color(list.length % 2 === 0 ? '#f5c451' : '#ff2e63'),
+      index: list.length
+    });
+  }
 }
 
 function tracksideSign(
@@ -2116,12 +2148,195 @@ export function buildWorld(
 
   buildSpecials(def, trk, group);
   buildDressing(def, trk, group);
+  buildObstacles(def, trk, group);
+  buildActiveArchitecture(def, trk, group);
+
   const sceneryUpdate = world.update;
   world.update = (dt, now) => {
     sceneryUpdate(dt, now);
     for (const f of trk.anim) f(dt, now);
   };
 
-  buildObstacles(def, trk, group);
   return world;
+}
+
+function buildActiveArchitecture(def: LevelDef, trk: TrackData, group: THREE.Group): void {
+  const arches = _archRegistry.get(trk) || [];
+  let activePhase: 1 | 2 | 3 = 1;
+  let curArchOffset = 0;
+
+  interface DynamicBarrier {
+    blade: THREE.Group;
+    neonMat: THREE.MeshBasicMaterial;
+    fieldMat: THREE.MeshBasicMaterial;
+    obstacle: { pos: THREE.Vector3; u: number; off: number; r: number; cool: number; active?: boolean };
+    slotGroup: 0 | 1 | 2;
+    curScaleY: number;
+    phaseColors: [THREE.Color, THREE.Color, THREE.Color];
+  }
+
+  const barriers: DynamicBarrier[] = [];
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x101830, metalness: 0.85, roughness: 0.25 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a2444, metalness: 0.8, roughness: 0.3 });
+  const baseRingGeo = new THREE.BoxGeometry(11.8, 0.55, 2.8);
+  const bladePillarGeo = new THREE.BoxGeometry(11.0, 10.5, 1.4);
+  const bladeTrimGeo = new THREE.BoxGeometry(11.3, 1.1, 1.7);
+  const bladeFieldGeo = new THREE.PlaneGeometry(10.2, 9.2);
+
+  const cCyan = new THREE.Color(def.theme.accent);
+  const cGold = new THREE.Color('#f5c451');
+  const cMagenta = new THREE.Color('#ff2e93');
+  const cCrimson = new THREE.Color('#ff2e63');
+
+  const slotsCount = 12;
+  let placed = 0;
+  for (let i = 0; i < slotsCount * 6 && placed < slotsCount; i++) {
+    const u = 0.095 + ((i * 0.071) % 0.82);
+    const skip =
+      trk.inSpecial(u) ||
+      trk.elev.isGap(u) ||
+      trk.elev.jumps.some((j) => u > j.at - 0.03 && u < j.end + 0.03) ||
+      trk.pads.some((p) => Math.abs(p - u) < 0.025) ||
+      trk.obstacles.some((o) => Math.abs(o.u - u) < 0.018);
+    if (skip) continue;
+
+    const slotGroup = (placed % 3) as 0 | 1 | 2;
+    const laneChoices = [-0.46, 0, 0.46];
+    const off = laneChoices[(placed + slotGroup) % 3] * trk.hw;
+    const f = trk.fr(u);
+    const basePos = f.pos.clone().addScaledVector(f.s, off);
+    const qSurf = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(f.s.clone().negate(), f.up, f.t)
+    );
+
+    // Flush recessed deck emitter housing
+    const padBase = new THREE.Mesh(baseRingGeo, baseMat);
+    padBase.position.copy(basePos).addScaledVector(f.up, 0.12);
+    padBase.quaternion.copy(qSurf);
+    group.add(padBase);
+
+    const neonMat = new THREE.MeshBasicMaterial({ color: cCyan.clone(), toneMapped: false });
+    const fieldMat = new THREE.MeshBasicMaterial({
+      color: cCyan.clone(),
+      transparent: true,
+      opacity: 0.48,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false
+    });
+
+    const emitterTrim = new THREE.Mesh(new THREE.BoxGeometry(12.2, 0.28, 3.1), neonMat);
+    emitterTrim.position.copy(basePos).addScaledVector(f.up, 0.34);
+    emitterTrim.quaternion.copy(qSurf);
+    group.add(emitterTrim);
+
+    // Deployable holographic barrier blade anchored at floor level (y = 0..10.5 in local space)
+    const blade = new THREE.Group();
+    blade.position.copy(basePos).addScaledVector(f.up, 0.25);
+    blade.quaternion.copy(qSurf);
+
+    const core = new THREE.Mesh(bladePillarGeo, frameMat);
+    core.position.y = 5.25;
+    const topCap = new THREE.Mesh(bladeTrimGeo, neonMat);
+    topCap.position.y = 10.2;
+    const midBand = new THREE.Mesh(bladeTrimGeo, neonMat);
+    midBand.position.y = 4.6;
+    const holoFront = new THREE.Mesh(bladeFieldGeo, fieldMat);
+    holoFront.position.set(0, 5.25, 0.78);
+    const holoBack = new THREE.Mesh(bladeFieldGeo, fieldMat);
+    holoBack.position.set(0, 5.25, -0.78);
+    blade.add(core, topCap, midBand, holoFront, holoBack);
+
+    const startScale = slotGroup === 0 ? 1.0 : 0.06;
+    blade.scale.set(1, startScale, 1);
+    group.add(blade);
+
+    const obstacle = {
+      pos: basePos.clone().addScaledVector(f.up, 3.6),
+      u,
+      off,
+      r: slotGroup === 0 ? 5.2 : 0,
+      cool: 0,
+      active: slotGroup === 0
+    };
+    trk.obstacles.push(obstacle);
+
+    barriers.push({
+      blade,
+      neonMat,
+      fieldMat,
+      obstacle,
+      slotGroup,
+      curScaleY: startScale,
+      phaseColors: [
+        slotGroup === 0 ? cCyan.clone() : cGold.clone(),
+        slotGroup === 1 ? cMagenta.clone() : cCyan.clone(),
+        slotGroup === 2 ? cGold.clone() : cCrimson.clone()
+      ]
+    });
+
+    placed++;
+  }
+
+  trk.setLapPhase = (phase: 1 | 2 | 3) => {
+    activePhase = phase;
+  };
+
+  trk.anim.push((dt, now) => {
+    const t = now * 0.001;
+    const damp = 1 - Math.exp(-dt * 4.2);
+
+    // 1. Animate dynamic track arches: smooth vertical clearance shift + lap color shift
+    const targetArchBaseOffset = activePhase === 1 ? 0 : activePhase === 2 ? -6.2 : 3.2;
+    curArchOffset += (targetArchBaseOffset - curArchOffset) * damp;
+
+    for (let i = 0; i < arches.length; i++) {
+      const a = arches[i];
+      const stagger = a.index % 2 === 0 ? 1 : -0.65;
+      const pulse = activePhase === 3 ? Math.sin(t * 2.8 + a.index * 0.7) * 1.4 : Math.sin(t * 1.1 + a.index) * 0.45;
+      const yShift = curArchOffset * stagger + pulse;
+      a.beam.position.y = 40 + yShift;
+      a.beamNeon.position.y = 38.6 + yShift;
+      a.sign.position.y = 32.2 + yShift;
+
+      const targetCol =
+        activePhase === 1 ? a.baseColor : activePhase === 2 ? a.altColorP2 : a.altColorP3;
+      a.neonMat.color.lerp(targetCol, damp);
+    }
+
+    // 2. Animate active track-deck holographic barriers per lap phase
+    for (let i = 0; i < barriers.length; i++) {
+      const b = barriers[i];
+      let targetActive = false;
+      let targetScale = 0.06;
+
+      if (activePhase === 1) {
+        targetActive = b.slotGroup === 0;
+        targetScale = targetActive ? 1.0 : 0.06;
+      } else if (activePhase === 2) {
+        targetActive = b.slotGroup === 1;
+        targetScale = targetActive ? 1.06 : 0.06;
+      } else {
+        targetActive = b.slotGroup === 0 || b.slotGroup === 2;
+        targetScale = targetActive ? 1.12 + Math.sin(t * 4.2 + i) * 0.06 : 0.06;
+      }
+
+      b.curScaleY += (targetScale - b.curScaleY) * damp;
+      b.blade.scale.set(1, b.curScaleY, 1);
+
+      const isRaised = targetActive && b.curScaleY > 0.48;
+      b.obstacle.active = isRaised;
+      b.obstacle.r = isRaised ? 5.2 : 0;
+
+      const cTarget = b.phaseColors[activePhase - 1] || b.phaseColors[0];
+      _colTarget.copy(cTarget);
+      if (activePhase === 3 && targetActive) {
+        _colTarget.multiplyScalar(1.15 + 0.15 * Math.sin(t * 6 + i));
+      }
+      b.neonMat.color.lerp(_colTarget, damp);
+      b.fieldMat.color.lerp(_colTarget, damp);
+      b.fieldMat.opacity = isRaised ? 0.44 + 0.12 * Math.sin(t * 5 + i) : 0.14;
+    }
+  });
 }
