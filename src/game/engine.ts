@@ -1536,8 +1536,11 @@ export class AhwooEngine {
       draftDistM: 999,
       draftSlingshotTimer: 0
     });
+    // u is lap-normalised and this circuit is ~18.8 km, so the grid gap has to
+    // be expressed in metres; a fractional offset puts the field off camera.
+    const gridLenM = this.world?.trk?.len || 1000;
     this.rivals.forEach((r, i) => {
-      r.u = (i + 1) * 0.022;
+      r.u = ((i + 1) * 9) / gridLenM;
       r.lap = 1;
       r.prevProgress = r.u;
       r.vx = 0;
@@ -1664,8 +1667,11 @@ export class AhwooEngine {
       draftDistM: 999,
       draftSlingshotTimer: 0
     });
+    // u is lap-normalised and this circuit is ~18.8 km, so the grid gap has to
+    // be expressed in metres; a fractional offset puts the field off camera.
+    const gridLenM = this.world?.trk?.len || 1000;
     this.rivals.forEach((r, i) => {
-      r.u = (i + 1) * 0.022;
+      r.u = ((i + 1) * 9) / gridLenM;
       r.lap = 1;
       r.off = [-0.45, -0.1, 0.42][i] * hw;
       r.prevProgress = r.u;
