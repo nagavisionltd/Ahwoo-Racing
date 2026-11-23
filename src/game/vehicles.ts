@@ -688,6 +688,94 @@ function buildBoosterRig(
   return { engine, boosterCores, shockRings };
 }
 
+/**
+ * Finds where the hull's tail bodywork actually ends. The cooked exports can
+ * have a lone wing tip or antenna further back than the tail plate, so using
+ * the bounding box minimum puts the exhausts on the flank instead of the stern.
+ * The anchors come from a band of vertices near an early rear percentile, which
+ * ignores those spikes and sits on the real tail.
+ */
+function rearNozzleAnchors(
+  hull: THREE.Object3D | null,
+  box: THREE.Box3,
+  size: THREE.Vector3
+): { coords: [number, number, number][]; radius: number; length: number } {
+  const fallbackX = Math.max(0.3, (size.x / 2) * 0.34);
+  const fallbackY = box.min.y + size.y * 0.42;
+  const fallbackZ = box.min.z + Math.max(0.12, size.z * 0.04);
+  const radius = Math.min(0.4, Math.max(0.26, (size.x / 2) * 0.2));
+  const length = Math.max(2.2, size.z * 0.55);
+  const fallback: [number, number, number][] = [
+    [-fallbackX, fallbackY, fallbackZ],
+    [fallbackX, fallbackY, fallbackZ]
+  ];
+  if (!hull) return { coords: fallback, radius, length };
+
+  const rear: number[] = [];
+  const zs: number[] = [];
+  const v = new THREE.Vector3();
+  const zLimit = box.min.z + size.z * 0.45;
+  hull.updateMatrixWorld(true);
+  hull.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.getAttribute('position');
+    if (!pos) return;
+    const stride = pos.count > 20000 ? 4 : 1;
+    for (let i = 0; i < pos.count; i += stride) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      if (v.z > zLimit) continue;
+      zs.push(v.z);
+      rear.push(v.x, v.y, v.z);
+    }
+  });
+  if (zs.length < 80) return { coords: fallback, radius, length };
+  zs.sort((a, b) => a - b);
+  const tailZ = zs[Math.floor(zs.length * 0.06)];
+
+  const band = Math.max(0.09, size.z * 0.04);
+  const bandX: number[] = [];
+  const bandY: number[] = [];
+  for (let i = 0; i < rear.length; i += 3) {
+    if (Math.abs(rear[i + 2] - tailZ) > band) continue;
+    bandX.push(rear[i]);
+    bandY.push(rear[i + 1]);
+  }
+  if (bandX.length < 24) return { coords: fallback, radius, length };
+  bandX.sort((a, b) => a - b);
+  bandY.sort((a, b) => a - b);
+  const quantile = (arr: number[], t: number) =>
+    arr[Math.min(arr.length - 1, Math.floor(arr.length * t))];
+  const halfWidth = Math.max(0.12, (quantile(bandX, 0.9) - quantile(bandX, 0.1)) / 2);
+  const nozzleX = THREE.MathUtils.clamp(halfWidth * 0.6, 0.2, size.x * 0.38);
+  const nozzleY = quantile(bandY, 0.5);
+
+  // Clearance per nozzle against the bodywork directly behind it: a flat tail
+  // plate can sit well forward of the hull's extreme rear, which left the plume
+  // base embedded in the surface and read as a glowing disc on the flank.
+  const localRearZ = (side: number): number => {
+    let best = Number.POSITIVE_INFINITY;
+    let hits = 0;
+    for (let i = 0; i < rear.length; i += 3) {
+      if (Math.sign(rear[i]) !== side) continue;
+      if (Math.abs(rear[i] - nozzleX) > size.x * 0.16) continue;
+      if (Math.abs(rear[i + 1] - nozzleY) > size.y * 0.18) continue;
+      hits++;
+      if (rear[i + 2] < best) best = rear[i + 2];
+    }
+    return hits > 12 ? best : tailZ;
+  };
+  const clearance = Math.max(0.04, size.z * 0.02);
+  return {
+    coords: [
+      [-nozzleX, nozzleY, localRearZ(-1) - clearance],
+      [nozzleX, nozzleY, localRearZ(1) - clearance]
+    ],
+    radius,
+    length
+  };
+}
+
 export interface BuiltVehicle {
   g: THREE.Group;
   engine: THREE.Object3D;
@@ -709,109 +797,6 @@ export interface BuiltVehicle {
  */
 /** Team plate colours for the three grid slots. */
 const RIVAL_PLATES = [0xff3b6b, 0x2ee6ff, 0xffc23b];
-
-/**
- * The verdant export is an organic leaf creature, so its canopy reads as
- * foliage rather than bodywork. This shroud fits over the leaf mass and gives
- * the hull a racer profile: glossy fairing, glazed canopy, dorsal spine and
- * accent strakes, with the baked purple fan left visible behind it.
- */
-function buildVerdantFairing(
-  box: THREE.Box3,
-  size: THREE.Vector3,
-  accent: number,
-  secondary: number
-): THREE.Group {
-  const g = new THREE.Group();
-  const L = size.z;
-  const W = size.x;
-  const H = size.y;
-
-  const shellMat = new THREE.MeshPhysicalMaterial({
-    color: 0x2f6b42,
-    metalness: 0.55,
-    roughness: 0.26,
-    clearcoat: 0.85,
-    clearcoatRoughness: 0.12
-  });
-  const cz = box.getCenter(new THREE.Vector3()).z;
-  const baseY = box.min.y;
-
-  // The leaf mass is one merged mesh, so it has to be enclosed rather than
-  // hidden. A long capsule fuselage covers the full hull height while staying
-  // much longer than it is tall, which is what reads as a racer.
-  const fusGeo = new THREE.CapsuleGeometry(1, 1.4, 10, 20);
-  fusGeo.rotateX(Math.PI / 2);
-  const fuselage = new THREE.Mesh(fusGeo, shellMat);
-  fuselage.scale.set(W * 0.42, H * 0.5, L * 0.26);
-  fuselage.position.set(0, baseY + H * 0.5, cz);
-  g.add(fuselage);
-
-  const noseGeo = new THREE.ConeGeometry(1, 1, 16);
-  noseGeo.rotateX(Math.PI / 2);
-  const nose = new THREE.Mesh(noseGeo, shellMat);
-  nose.scale.set(W * 0.42, H * 0.44, L * 0.16);
-  nose.position.set(0, baseY + H * 0.5, cz + L * 0.44);
-  g.add(nose);
-
-  const canopy = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
-    new THREE.MeshPhysicalMaterial({
-      color: 0x0d1f2a,
-      metalness: 0.2,
-      roughness: 0.08,
-      transparent: true,
-      opacity: 0.62,
-      clearcoat: 0.9,
-      depthWrite: false
-    })
-  );
-  canopy.scale.set(W * 0.22, H * 0.16, L * 0.22);
-  canopy.position.set(0, baseY + H * 0.82, cz + L * 0.14);
-  canopy.renderOrder = 3;
-  g.add(canopy);
-
-  const finMat = new THREE.MeshStandardMaterial({
-    color: accent,
-    metalness: 0.62,
-    roughness: 0.28,
-    emissive: accent,
-    emissiveIntensity: 0.22
-  });
-  const spine = new THREE.Mesh(new THREE.BoxGeometry(W * 0.1, H * 0.05, L * 0.42), finMat);
-  spine.position.set(0, baseY + H * 0.96, cz - L * 0.08);
-  g.add(spine);
-
-  // Short rear wing instead of a tall mast: the old fin read as a flagpole.
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, H * 0.16, L * 0.2), finMat);
-  fin.position.set(0, baseY + H * 0.94, cz - L * 0.4);
-  fin.rotation.x = -0.14;
-  g.add(fin);
-
-  for (const side of [-1, 1]) {
-    const pod = new THREE.Mesh(new THREE.BoxGeometry(W * 0.11, H * 0.12, L * 0.5), finMat);
-    pod.position.set(side * W * 0.44, baseY + H * 0.36, cz - L * 0.04);
-    pod.rotation.z = side * 0.08;
-    g.add(pod);
-  }
-
-  for (const side of [-1, 1]) {
-    const strake = new THREE.Mesh(
-      new THREE.BoxGeometry(W * 0.035, H * 0.05, L * 0.3),
-      new THREE.MeshStandardMaterial({
-        color: secondary,
-        emissive: secondary,
-        emissiveIntensity: 0.5,
-        metalness: 0.4,
-        roughness: 0.35
-      })
-    );
-    strake.position.set(side * W * 0.34, baseY + H * 0.62, cz + L * 0.04);
-    g.add(strake);
-  }
-
-  return g;
-}
 
 function buildFixedLiveryChassis(
   profile: ShipProfile,
@@ -836,27 +821,19 @@ function buildFixedLiveryChassis(
     : new THREE.Box3(new THREE.Vector3(-1.2, -0.55, -2.3), new THREE.Vector3(1.2, 1.05, 2.3));
   const size = box.getSize(new THREE.Vector3());
   const centre = box.getCenter(new THREE.Vector3());
-  const rearZ = box.min.z + Math.max(0.12, size.z * 0.04);
-  const nozzleY = box.min.y + size.y * 0.42;
-  const nozzleX = Math.max(0.3, (size.x / 2) * 0.34);
-  const nozzleCoords: [number, number, number][] = [
-    [-nozzleX, nozzleY, rearZ],
-    [nozzleX, nozzleY, rearZ]
-  ];
+  const anchors = rearNozzleAnchors(hull, box, size);
+  const nozzleX = Math.abs(anchors.coords[0][0]);
+  const nozzleY = anchors.coords[0][1];
+  const rearZ = anchors.coords[0][2];
   const rig = buildBoosterRig(
-    nozzleCoords,
+    anchors.coords,
     accent,
     profile.secondaryColor,
-    Math.max(0.3, (size.x / 2) * 0.21),
-    Math.max(2.4, size.z * 0.66)
+    anchors.radius,
+    anchors.length
   );
   const engine = rig.engine;
   g.add(engine);
-
-  // The leaf-creature hull needs bodywork over the foliage to read as a racer.
-  if (profile.model === 'green-space-racer') {
-    g.add(buildVerdantFairing(box, size, accent, profile.secondaryColor));
-  }
 
   // Rivals should read as opponents at a glance rather than clones of the
   // player's factory hull: tint the baked shell toward a team plate and add a
