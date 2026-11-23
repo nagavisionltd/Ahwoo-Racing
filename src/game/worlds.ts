@@ -115,7 +115,7 @@ function findCorners(trk: TrackData, max = 8): { u: number; mag: number }[] {
     const mag = Math.abs(d);
     if (mag < 0.75) continue;
     const prev = found[found.length - 1];
-    if (prev && u - prev.u < 0.05) {
+    if (prev && u - prev.u < 0.02) {
       if (mag > prev.mag) {
         prev.u = u;
         prev.mag = mag;
