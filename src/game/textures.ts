@@ -173,6 +173,45 @@ export function makeRoadMarkingsTexture(theme: RoadPalette): THREE.CanvasTexture
   return t;
 }
 
+/* ---- Authored surface maps -------------------------------------------------
+ * CC0 set: Poly Haven `asphalt_02` (albedo / OpenGL normal / ARM packed as
+ * R=AO, G=roughness, B=metalness). Loaded once and cached, because level
+ * switches dispose the world and would otherwise re-upload every map.
+ */
+
+const authoredLoader = new THREE.TextureLoader();
+const authoredCache = new Map<string, THREE.Texture>();
+
+function authoredMap(url: string, srgb: boolean): THREE.Texture {
+  const hit = authoredCache.get(url);
+  if (hit) return hit;
+  const t = authoredLoader.load(url);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = maxAniso;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  authoredCache.set(url, t);
+  return t;
+}
+
+/** Real asphalt for the city circuit, replacing the painted canvas surface. */
+export function makeAsphaltRoadMaterial(): THREE.MeshStandardMaterial {
+  const albedo = authoredMap('/assets/textures/asphalt/asphalt-albedo.webp', true);
+  const normal = authoredMap('/assets/textures/asphalt/asphalt-normal.webp', false);
+  const arm = authoredMap('/assets/textures/asphalt/asphalt-arm.webp', false);
+  return new THREE.MeshStandardMaterial({
+    map: albedo,
+    normalMap: normal,
+    roughnessMap: arm,
+    metalnessMap: arm,
+    roughness: 1,
+    metalness: 1,
+    envMapIntensity: 0.95,
+    side: THREE.DoubleSide
+  });
+}
+
 export function makeKerbTexture(a: string, b: string): THREE.CanvasTexture {
   const t = canvasTexture(16, 64, (g) => {
     g.fillStyle = a;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   canvasTexture,
   glowPlane,
+  makeAsphaltRoadMaterial,
   makeKerbTexture,
   makeRoadMarkingsTexture,
   makeRoadSurfaceTexture,
@@ -2584,14 +2585,18 @@ export function buildWorld(
   // Surface and light are separate layers: a tiling, metre-scaled asphalt map
   // for the deck and a transparent additive decal for the glow markings, so
   // only the markings bloom instead of the whole road self-illuminating.
-  const roadSurfaceTex = makeRoadSurfaceTexture(def.road);
-  const roadMat = new THREE.MeshStandardMaterial({
-    map: roadSurfaceTex,
-    roughness: 0.58,
-    metalness: 0.42,
-    envMapIntensity: 0.9,
-    side: THREE.DoubleSide
-  });
+  // Level 01 runs the authored CC0 asphalt set; the other circuits keep the
+  // painted canvas surface until their own PBR sets land.
+  const roadMat =
+    def.id === 'neon'
+      ? makeAsphaltRoadMaterial()
+      : new THREE.MeshStandardMaterial({
+          map: makeRoadSurfaceTexture(def.road),
+          roughness: 0.58,
+          metalness: 0.42,
+          envMapIntensity: 0.9,
+          side: THREE.DoubleSide
+        });
 
   const markingTex = makeRoadMarkingsTexture(def.road);
   const markingMat = new THREE.MeshBasicMaterial({
