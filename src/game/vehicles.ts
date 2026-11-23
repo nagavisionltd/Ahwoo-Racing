@@ -734,24 +734,24 @@ function buildVerdantFairing(
     clearcoat: 0.85,
     clearcoatRoughness: 0.12
   });
-  const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.52),
-    shellMat
-  );
   const cz = box.getCenter(new THREE.Vector3()).z;
-  // Low and long rather than a dome: a tall hemisphere over the leaf mass read
-  // as a green egg, so the fairing is flattened into a canopy line.
-  shell.scale.set(W * 0.44, H * 0.3, L * 0.38);
-  shell.position.set(0, box.min.y + H * 0.52, cz + L * 0.04);
-  g.add(shell);
+  const baseY = box.min.y;
 
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(W * 0.62, H * 0.12, L * 0.46), shellMat);
-  deck.position.set(0, box.min.y + H * 0.44, cz - L * 0.02);
-  g.add(deck);
+  // The leaf mass is one merged mesh, so it has to be enclosed rather than
+  // hidden. A long capsule fuselage covers the full hull height while staying
+  // much longer than it is tall, which is what reads as a racer.
+  const fusGeo = new THREE.CapsuleGeometry(1, 1.4, 10, 20);
+  fusGeo.rotateX(Math.PI / 2);
+  const fuselage = new THREE.Mesh(fusGeo, shellMat);
+  fuselage.scale.set(W * 0.42, H * 0.5, L * 0.26);
+  fuselage.position.set(0, baseY + H * 0.5, cz);
+  g.add(fuselage);
 
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(W * 0.5, H * 0.1, L * 0.2), shellMat);
-  nose.position.set(0, box.min.y + H * 0.46, cz + L * 0.42);
-  nose.rotation.x = 0.12;
+  const noseGeo = new THREE.ConeGeometry(1, 1, 16);
+  noseGeo.rotateX(Math.PI / 2);
+  const nose = new THREE.Mesh(noseGeo, shellMat);
+  nose.scale.set(W * 0.42, H * 0.44, L * 0.16);
+  nose.position.set(0, baseY + H * 0.5, cz + L * 0.44);
   g.add(nose);
 
   const canopy = new THREE.Mesh(
@@ -766,8 +766,8 @@ function buildVerdantFairing(
       depthWrite: false
     })
   );
-  canopy.scale.set(W * 0.2, H * 0.15, L * 0.19);
-  canopy.position.set(0, box.min.y + H * 0.62, cz + L * 0.12);
+  canopy.scale.set(W * 0.22, H * 0.16, L * 0.22);
+  canopy.position.set(0, baseY + H * 0.82, cz + L * 0.14);
   canopy.renderOrder = 3;
   g.add(canopy);
 
@@ -778,19 +778,19 @@ function buildVerdantFairing(
     emissive: accent,
     emissiveIntensity: 0.22
   });
-  const spine = new THREE.Mesh(new THREE.BoxGeometry(W * 0.1, H * 0.06, L * 0.42), finMat);
-  spine.position.set(0, box.min.y + H * 0.77, cz - L * 0.06);
+  const spine = new THREE.Mesh(new THREE.BoxGeometry(W * 0.1, H * 0.05, L * 0.42), finMat);
+  spine.position.set(0, baseY + H * 0.96, cz - L * 0.08);
   g.add(spine);
 
   // Short rear wing instead of a tall mast: the old fin read as a flagpole.
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, H * 0.15, L * 0.2), finMat);
-  fin.position.set(0, box.min.y + H * 0.82, cz - L * 0.36);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, H * 0.16, L * 0.2), finMat);
+  fin.position.set(0, baseY + H * 0.94, cz - L * 0.4);
   fin.rotation.x = -0.14;
   g.add(fin);
 
   for (const side of [-1, 1]) {
-    const pod = new THREE.Mesh(new THREE.BoxGeometry(W * 0.13, H * 0.13, L * 0.46), finMat);
-    pod.position.set(side * W * 0.42, box.min.y + H * 0.4, cz - L * 0.02);
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(W * 0.11, H * 0.12, L * 0.5), finMat);
+    pod.position.set(side * W * 0.44, baseY + H * 0.36, cz - L * 0.04);
     pod.rotation.z = side * 0.08;
     g.add(pod);
   }
@@ -806,7 +806,7 @@ function buildVerdantFairing(
         roughness: 0.35
       })
     );
-    strake.position.set(side * W * 0.32, box.min.y + H * 0.56, cz + L * 0.04);
+    strake.position.set(side * W * 0.34, baseY + H * 0.62, cz + L * 0.04);
     g.add(strake);
   }
 
