@@ -185,6 +185,8 @@ export function makeFacadeAtlas(): { map: THREE.CanvasTexture; emissive: THREE.C
   const CW = 512;
   const CH = 1024;
   const palette = ['#8fe9ff', '#ffd27a', '#ff6fae', '#b8c7ff', '#7ef0d0', '#ffffff'];
+  const SHELLS = ['#0d1526', '#111a2f', '#0b1220', '#151a33', '#0f1a24', '#131427', '#101c2b', '#171626'];
+  const NEON = ['#00f0ff', '#ff2e93', '#f5c451', '#8b5cf6'];
   const FLOOR = 64;
 
   const draw = (mask: boolean) =>
@@ -196,39 +198,82 @@ export function makeFacadeAtlas(): { map: THREE.CanvasTexture; emissive: THREE.C
         const ox = (cell % 4) * CW;
         const oy = Math.floor(cell / 4) * CH;
         const variant = cell % 4;
-        const winW = variant === 2 ? 56 : 44;
-        const gap = 20;
+        const winW = variant === 2 ? 56 : variant === 3 ? 34 : 44;
+        const gap = variant === 3 ? 14 : 20;
+        const neon = NEON[cell % NEON.length];
+        if (!mask) {
+          g.fillStyle = SHELLS[cell];
+          g.fillRect(ox, oy, CW, CH);
+        }
 
         for (let y = 0; y < CH; y += FLOOR) {
           if (!mask) {
-            g.fillStyle = variant === 1 ? '#131b2e' : '#0e1626';
-            g.fillRect(ox, oy + y, CW, 14);
-            g.fillStyle = 'rgba(120,170,255,0.10)';
-            g.fillRect(ox, oy + y + 14, CW, 2);
+            // Floor slab: bright top edge, deep shadow beneath, so towers read
+            // as stacked storeys instead of one flat wall.
+            g.fillStyle = 'rgba(150,190,250,0.09)';
+            g.fillRect(ox, oy + y, CW, 3);
+            g.fillStyle = 'rgba(0,0,0,0.30)';
+            g.fillRect(ox, oy + y + 15, CW, 7);
+            if ((y / FLOOR) % 3 === 1) {
+              // Rooftop-style plant boxes breaking up the window rhythm.
+              const bx = ox + 24 + ((y / FLOOR) % 2) * 158;
+              g.fillStyle = 'rgba(10,16,28,0.88)';
+              g.fillRect(bx, oy + y + 26, 48, 24);
+              g.fillStyle = 'rgba(130,170,220,0.18)';
+              g.fillRect(bx + 4, oy + y + 31, 40, 3);
+            }
           }
           for (let x = 12; x + winW <= CW - 12; x += winW + gap) {
+            const wy = oy + y + 18;
+            const wh = FLOOR - 26;
             if (mask) {
               if (Math.random() > (variant === 3 ? 0.22 : 0.36)) continue;
-              g.fillStyle = palette[(Math.random() * palette.length) | 0];
-              g.globalAlpha = 0.55 + Math.random() * 0.45;
-              g.fillRect(ox + x, oy + y + 18, winW, FLOOR - 26);
+              const col = palette[(Math.random() * palette.length) | 0];
+              const lit = g.createLinearGradient(0, wy, 0, wy + wh);
+              lit.addColorStop(0, col);
+              lit.addColorStop(1, 'rgba(255,255,255,0.22)');
+              g.fillStyle = lit;
+              g.globalAlpha = 0.5 + Math.random() * 0.5;
+              g.fillRect(ox + x, wy, winW, wh);
+              // Desks, blinds and partitions silhouetted against the glow.
+              if (Math.random() < 0.45) {
+                g.globalAlpha = 0.8;
+                g.fillStyle = 'rgba(0,0,0,0.6)';
+                g.fillRect(ox + x + 2, wy + 2, winW - 4, 3 + Math.random() * wh * 0.4);
+              }
+              g.globalAlpha = 1;
               continue;
             }
-            const grd = g.createLinearGradient(0, oy + y + 18, 0, oy + y + FLOOR - 8);
-            grd.addColorStop(0, '#1b2740');
-            grd.addColorStop(1, '#0c1424');
+            const grd = g.createLinearGradient(0, wy, 0, wy + wh);
+            grd.addColorStop(0, '#243650');
+            grd.addColorStop(0.55, '#101c30');
+            grd.addColorStop(1, '#0a1220');
             g.fillStyle = grd;
-            g.fillRect(ox + x, oy + y + 18, winW, FLOOR - 26);
-            g.fillStyle = 'rgba(255,255,255,0.05)';
-            g.fillRect(ox + x, oy + y + FLOOR - 10, winW, 2);
+            g.fillRect(ox + x, wy, winW, wh);
+            // Sky reflection down one side of the glass.
+            g.fillStyle = 'rgba(190,225,255,0.10)';
+            g.fillRect(ox + x + 3, wy + 2, winW * 0.34, wh - 4);
+            g.fillStyle = 'rgba(8,12,20,0.92)';
+            g.fillRect(ox + x + winW * 0.5, wy, 2, wh);
+            g.fillStyle = 'rgba(255,255,255,0.10)';
+            g.fillRect(ox + x, wy + wh - 2, winW, 2);
           }
           g.globalAlpha = 1;
         }
 
         if (!mask) {
-          g.fillStyle = '#060b15';
-          g.fillRect(ox, oy, 6, CH);
-          g.fillRect(ox + CW - 6, oy, 6, CH);
+          // Corner columns: dark structural piers with a lit outer edge.
+          g.fillStyle = 'rgba(6,10,18,0.92)';
+          g.fillRect(ox, oy, 9, CH);
+          g.fillRect(ox + CW - 9, oy, 9, CH);
+          g.fillStyle = 'rgba(255,255,255,0.07)';
+          g.fillRect(ox + 9, oy, 2, CH);
+          g.fillRect(ox + CW - 11, oy, 2, CH);
+        } else {
+          g.fillStyle = neon;
+          g.globalAlpha = 0.28;
+          g.fillRect(ox, oy, CW, 4);
+          g.globalAlpha = 1;
         }
 
         if (variant === 0 || variant === 2) {

@@ -643,10 +643,12 @@ function buildBoosterRig(
     blending: THREE.AdditiveBlending,
     depthWrite: false
   });
+  // Hoops take their heat from the plume rather than the bare secondary
+  // trim, which otherwise reads as a loose orange ring on pale liveries.
   const shockMat = new THREE.MeshBasicMaterial({
-    color: secondaryHex,
+    color: new THREE.Color(secondaryHex).lerp(plumeTint, 0.6),
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.4,
     blending: THREE.AdditiveBlending,
     depthWrite: false
   });
@@ -660,7 +662,7 @@ function buildBoosterRig(
   innerGeo.translate(0, -plumeLength * 0.34, 0);
   innerGeo.rotateX(Math.PI / 2);
 
-  const ringGeo = new THREE.TorusGeometry(plumeRadius * 0.65, 0.038, 6, 18);
+  const ringGeo = new THREE.TorusGeometry(plumeRadius * 0.42, 0.016, 6, 18);
 
   for (const [nx, ny, nz] of nozzleCoords) {
     const nozzlePlume = new THREE.Group();
@@ -673,7 +675,8 @@ function buildBoosterRig(
 
     // 2 traveling shock diamond rings per nozzle
     for (let r = 0; r < 2; r++) {
-      const ring = new THREE.Mesh(ringGeo, shockMat);
+      // One material per ho op so it can fade as it travels down the plume.
+      const ring = new THREE.Mesh(ringGeo, shockMat.clone());
       ring.position.z = -0.35 - r * (plumeLength * 0.35);
       nozzlePlume.add(ring);
       shockRings.push(ring);
@@ -706,6 +709,108 @@ export interface BuiltVehicle {
  */
 /** Team plate colours for the three grid slots. */
 const RIVAL_PLATES = [0xff3b6b, 0x2ee6ff, 0xffc23b];
+
+/**
+ * The verdant export is an organic leaf creature, so its canopy reads as
+ * foliage rather than bodywork. This shroud fits over the leaf mass and gives
+ * the hull a racer profile: glossy fairing, glazed canopy, dorsal spine and
+ * accent strakes, with the baked purple fan left visible behind it.
+ */
+function buildVerdantFairing(
+  box: THREE.Box3,
+  size: THREE.Vector3,
+  accent: number,
+  secondary: number
+): THREE.Group {
+  const g = new THREE.Group();
+  const L = size.z;
+  const W = size.x;
+  const H = size.y;
+
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.52),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x2f6b42,
+      metalness: 0.55,
+      roughness: 0.26,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.12
+    })
+  );
+  const cz = box.getCenter(new THREE.Vector3()).z;
+  // Low and long rather than a dome: a tall hemisphere over the leaf mass read
+  // as a green egg, so the fairing is flattened into a canopy line.
+  shell.scale.set(W * 0.44, H * 0.3, L * 0.38);
+  shell.position.set(0, box.min.y + H * 0.52, cz + L * 0.04);
+  g.add(shell);
+
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(W * 0.62, H * 0.12, L * 0.46), shellMat);
+  deck.position.set(0, box.min.y + H * 0.44, cz - L * 0.02);
+  g.add(deck);
+
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(W * 0.5, H * 0.1, L * 0.2), shellMat);
+  nose.position.set(0, box.min.y + H * 0.46, cz + L * 0.42);
+  nose.rotation.x = 0.12;
+  g.add(nose);
+
+  const canopy = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x0d1f2a,
+      metalness: 0.2,
+      roughness: 0.08,
+      transparent: true,
+      opacity: 0.62,
+      clearcoat: 0.9,
+      depthWrite: false
+    })
+  );
+  canopy.scale.set(W * 0.2, H * 0.15, L * 0.19);
+  canopy.position.set(0, box.min.y + H * 0.62, cz + L * 0.12);
+  canopy.renderOrder = 3;
+  g.add(canopy);
+
+  const finMat = new THREE.MeshStandardMaterial({
+    color: accent,
+    metalness: 0.62,
+    roughness: 0.28,
+    emissive: accent,
+    emissiveIntensity: 0.22
+  });
+  const spine = new THREE.Mesh(new THREE.BoxGeometry(W * 0.1, H * 0.06, L * 0.42), finMat);
+  spine.position.set(0, box.min.y + H * 0.77, cz - L * 0.06);
+  g.add(spine);
+
+  // Short rear wing instead of a tall mast: the old fin read as a flagpole.
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, H * 0.15, L * 0.2), finMat);
+  fin.position.set(0, box.min.y + H * 0.82, cz - L * 0.36);
+  fin.rotation.x = -0.14;
+  g.add(fin);
+
+  for (const side of [-1, 1]) {
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(W * 0.13, H * 0.13, L * 0.46), finMat);
+    pod.position.set(side * W * 0.42, box.min.y + H * 0.4, cz - L * 0.02);
+    pod.rotation.z = side * 0.08;
+    g.add(pod);
+  }
+
+  for (const side of [-1, 1]) {
+    const strake = new THREE.Mesh(
+      new THREE.BoxGeometry(W * 0.035, H * 0.05, L * 0.3),
+      new THREE.MeshStandardMaterial({
+        color: secondary,
+        emissive: secondary,
+        emissiveIntensity: 0.5,
+        metalness: 0.4,
+        roughness: 0.35
+      })
+    );
+    strake.position.set(side * W * 0.32, box.min.y + H * 0.56, cz + L * 0.04);
+    g.add(strake);
+  }
+
+  return g;
+}
 
 function buildFixedLiveryChassis(
   profile: ShipProfile,
@@ -746,6 +851,11 @@ function buildFixedLiveryChassis(
   );
   const engine = rig.engine;
   g.add(engine);
+
+  // The leaf-creature hull needs bodywork over the foliage to read as a racer.
+  if (profile.model === 'green-space-racer') {
+    g.add(buildVerdantFairing(box, size, accent, profile.secondaryColor));
+  }
 
   // Rivals should read as opponents at a glance rather than clones of the
   // player's factory hull: tint the baked shell toward a team plate and add a

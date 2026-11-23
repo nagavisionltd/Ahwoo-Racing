@@ -3453,10 +3453,12 @@ export class AhwooEngine {
       const stuntRate = (inLoop ? 22 : 0) + (inRoll ? 24 : 0);
 
       // Pull back smoothly during boost and high-intensity loops/corkscrews/jumps for unobstructed sightlines
+      // Kept deliberately mild: the previous pullback parked the camera so far
+      // back that the ship shrank to a dot, and boost pushed it further out.
       const intensityPull =
-        this.camBoost * 3.4 + (inLoop ? 2.8 : 0) + (inRoll ? corkK * 3.2 : 0) + (S.air ? 2.2 : 0);
+        this.camBoost * 1.3 + (inLoop ? 1.5 : 0) + (inRoll ? corkK * 1.7 : 0) + (S.air ? 1.1 : 0);
       this.camPullback += (intensityPull - this.camPullback) * (1 - Math.exp(-dt * 4.2));
-      const targetBack = 9.8 + spd * 1.9 + this.camPullback;
+      const targetBack = 7.1 + spd * 0.95 + this.camPullback;
       const targetUp =
         2.95 +
         spd * 0.25 +
@@ -3571,7 +3573,7 @@ export class AhwooEngine {
         this.screenShake *= Math.exp(-dt * 5.0);
       }
 
-      const aheadDist = 18 + spd * 10 + this.camBoost * 6;
+      const aheadDist = 14 + spd * 7 + this.camBoost * 4;
       const aheadRoad = trk.fr(clampU(u + aheadDist / (trk.len * liveArcStretch)));
       _vecB.copy(ship.position).addScaledVector(_camT, aheadDist).addScaledVector(_camUp, 0.9);
       _vecC
@@ -3619,9 +3621,9 @@ export class AhwooEngine {
       // Dynamic FOV adjustment: expands aggressively when boosting + in high-intensity sections
       const targetFov =
         62 +
-        speed01 * 4.5 +
-        spd * 2.5 +
-        this.camBoost * 11.5 +
+        speed01 * 3.0 +
+        spd * 1.5 +
+        this.camBoost * 6.0 +
         (inLoop ? 3.5 : 0) +
         (inRoll ? corkK * 5.5 : 0);
       this.cam.fov += (targetFov - this.cam.fov) * (1 - Math.exp(-dt * 4.5));
@@ -3646,6 +3648,8 @@ export class AhwooEngine {
       ring.position.z = -0.35 - phase * 2.75;
       const rSc = (0.95 - phase * 0.48) * (isBoosting ? 1.25 : 0.88);
       ring.scale.setScalar(rSc);
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        0.36 * Math.pow(1 - phase, 1.4) * (isBoosting ? 1.3 : 1);
     }
     const hoverFlare = 0.82 + Math.sin(now * 0.012) * 0.12 + (S.air ? 0.35 : 0) + (isBoosting ? 0.28 : 0);
     for (let ci = 0; ci < this.player.repulsorCones.length; ci++) {
@@ -3938,6 +3942,7 @@ export class AhwooEngine {
         const rPhase = ((now * 0.003 + ri * 0.5) % 1 + 1) % 1;
         ring.position.z = -0.35 - rPhase * 2.2;
         ring.scale.setScalar(0.9 - rPhase * 0.45);
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0.36 * Math.pow(1 - rPhase, 1.4);
       }
       for (let si = 0; si < rv.rimSpinners.length; si++) {
         rv.rimSpinners[si].rotation.x += dt * (3 + speed * 0.12);

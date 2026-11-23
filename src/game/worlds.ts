@@ -509,6 +509,15 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
   const bandMat = new THREE.MeshBasicMaterial({ color: 0xf5c451, toneMapped: false });
   const bandMesh = new THREE.InstancedMesh(box, bandMat, towers.length);
 
+  // Rooftop plant, masts and hazard beacons: the closer camera now reads the
+  // crowns in detail, so plain setback blocks left the skyline looking empty.
+  const ventMat = new THREE.MeshStandardMaterial({ color: 0x1a2238, metalness: 0.75, roughness: 0.42 });
+  const ventMesh = new THREE.InstancedMesh(box, ventMat, towers.length * 2);
+  const mastMat = new THREE.MeshStandardMaterial({ color: 0x2a3350, metalness: 0.9, roughness: 0.3 });
+  const mastMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.9, 1, 5), mastMat, towers.length);
+  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff3b52, toneMapped: false });
+  const beaconMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1.6, 6, 5), beaconMat, towers.length);
+
   const pagodaTowers = towers.filter((t) => t.pagoda);
   const eaveGeo = new THREE.ConeGeometry(0.85, 0.34, 4);
   eaveGeo.rotateY(Math.PI / 4);
@@ -542,6 +551,28 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     sc0.set(1, spireH, 1);
     _m4.compose(p0, q0, sc0);
     spireMesh.setMatrixAt(i, _m4);
+
+    for (let v = 0; v < 2; v++) {
+      p0.set(
+        t.p.x + (v ? 1 : -1) * t.w * 0.16,
+        roofY + crownH + 5,
+        t.p.z + (v ? -1 : 1) * t.d * 0.14
+      );
+      sc0.set(t.w * 0.16, 10, t.d * 0.14);
+      _m4.compose(p0, q0, sc0);
+      ventMesh.setMatrixAt(i * 2 + v, _m4);
+    }
+
+    const mastH = 26 + (i % 3) * 10;
+    p0.set(t.p.x + t.w * 0.26, roofY + crownH + mastH * 0.5, t.p.z - t.d * 0.22);
+    sc0.set(1, mastH, 1);
+    _m4.compose(p0, q0, sc0);
+    mastMesh.setMatrixAt(i, _m4);
+
+    p0.set(t.p.x + t.w * 0.26, roofY + crownH + mastH, t.p.z - t.d * 0.22);
+    sc0.set(1, 1, 1);
+    _m4.compose(p0, q0, sc0);
+    beaconMesh.setMatrixAt(i, _m4);
   });
 
   pagodaTowers.forEach((t, i) => {
@@ -555,7 +586,7 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     }
   });
 
-  for (const m of [crownMesh, bandMesh, spireMesh, eaveMesh]) {
+  for (const m of [crownMesh, bandMesh, spireMesh, eaveMesh, ventMesh, mastMesh, beaconMesh]) {
     m.instanceMatrix.needsUpdate = true;
     m.computeBoundingSphere();
     group.add(m);
