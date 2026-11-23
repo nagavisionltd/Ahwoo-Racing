@@ -410,6 +410,91 @@ export function makeAsphaltRoadMaterial(grade: RoadGrade): THREE.MeshStandardMat
   });
 }
 
+/* ---- Track guidance decals ------------------------------------------------
+ * Apex chevrons, brake-zone wash and landing markers. All three are drawn as
+ * additive decals on top of the road so they read like painted track furniture
+ * rather than emissive surfaces competing with the markings layer.
+ */
+
+export function makeChevronDecalTexture(color: string, count = 4): THREE.CanvasTexture {
+  const W = 256;
+  const H = 256;
+  const t = canvasTexture(W, H, (g) => {
+    g.clearRect(0, 0, W, H);
+    g.strokeStyle = color;
+    g.lineWidth = 26;
+    g.shadowColor = color;
+    g.shadowBlur = 18;
+    const step = H / count;
+    for (let i = 0; i < count; i++) {
+      const y = i * step + step * 0.82;
+      g.globalAlpha = 0.32 + 0.68 * (i / Math.max(1, count - 1));
+      g.beginPath();
+      g.moveTo(W * 0.16, y);
+      g.lineTo(W * 0.5, y - step * 0.52);
+      g.lineTo(W * 0.84, y);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** Warm wash laid over the road on the approach to a tight corner. */
+export function makeBrakeZoneTexture(color: string): THREE.CanvasTexture {
+  const W = 128;
+  const H = 256;
+  const t = canvasTexture(W, H, (g) => {
+    g.clearRect(0, 0, W, H);
+    const grd = g.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, 'rgba(0,0,0,0)');
+    grd.addColorStop(0.45, color);
+    grd.addColorStop(1, color);
+    g.globalAlpha = 0.26;
+    g.fillStyle = grd;
+    g.fillRect(0, 0, W, H);
+
+    // Tick marks along both edges, denser toward the corner
+    g.globalAlpha = 0.6;
+    g.fillStyle = color;
+    for (let y = H * 0.3; y < H; y += 26) {
+      const w = 10 + 26 * (y / H);
+      g.fillRect(0, y, w, 4);
+      g.fillRect(W - w, y, w, 4);
+    }
+    g.globalAlpha = 1;
+  });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** Landing box painted after a jump: outline plus two forward chevrons. */
+export function makeLandingMarkerTexture(color: string): THREE.CanvasTexture {
+  const W = 256;
+  const H = 256;
+  const t = canvasTexture(W, H, (g) => {
+    g.clearRect(0, 0, W, H);
+    g.strokeStyle = color;
+    g.shadowColor = color;
+    g.shadowBlur = 14;
+    g.globalAlpha = 0.85;
+    g.lineWidth = 13;
+    g.strokeRect(20, 20, W - 40, H - 40);
+    g.lineWidth = 20;
+    for (const y of [H * 0.44, H * 0.7]) {
+      g.beginPath();
+      g.moveTo(W * 0.24, y);
+      g.lineTo(W * 0.5, y - H * 0.13);
+      g.lineTo(W * 0.76, y);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
 export function makeKerbTexture(a: string, b: string): THREE.CanvasTexture {
   const t = canvasTexture(16, 64, (g) => {
     g.fillStyle = a;

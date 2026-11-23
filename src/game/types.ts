@@ -24,6 +24,10 @@ export interface ShipProfile {
   hnd: number;
   bst: number;
   pilotName: string;
+  /** Cooked GLB in /assets/models to use instead of the procedural hull. */
+  model?: string;
+  /** Baked livery: custom paint, neon and rim options do not apply. */
+  fixedLivery?: boolean;
 }
 
 export type FeatureType = 'jump' | 'descent' | 'hill' | 'loop' | 'corkscrew' | 'tunnel';

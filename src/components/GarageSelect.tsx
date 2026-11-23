@@ -88,6 +88,19 @@ const ShipSilhouetteThumb: React.FC<{ id: number; hex: string; active: boolean; 
             <circle cx="98" cy="38" r="5" fill="#0b101d" stroke={hex} strokeWidth="1.4" />
           </g>
         )}
+        {id === 4 && (
+          <g>
+            {/* Chao Space Racer: biolume pod, antenna ball, red hover fins */}
+            <ellipse cx="70" cy="47" rx="40" ry="5" fill="none" stroke={hex} strokeOpacity={previewed || active ? 0.85 : 0.3} strokeWidth="1.4" />
+            <circle cx="70" cy="29" r="16" fill="#2f6fd4" stroke={hex} strokeWidth="1.6" />
+            <path d="M70 13 L70 8" stroke={hex} strokeWidth="1.6" />
+            <circle cx="70" cy="6" r="3.6" fill="#f5c451" />
+            <path d="M46 38 L32 47 L54 47 Z" fill="#ff5a4d" />
+            <path d="M94 38 L108 47 L86 47 Z" fill="#ff5a4d" />
+            <circle cx="64" cy="26" r="2.2" fill="#050712" />
+            <circle cx="76" cy="26" r="2.2" fill="#050712" />
+          </g>
+        )}
       </svg>
 
       {previewed && (
@@ -128,6 +141,9 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
 
   const activeStageId = hoveredShipId ?? selectedShipId;
   const prof = SHIP_PROFILES[activeStageId] || SHIP_PROFILES[0];
+  const selectedProf = SHIP_PROFILES[selectedShipId] || SHIP_PROFILES[0];
+  // Baked-livery chassis keep their factory paint; the workshop goes read-only.
+  const locked = !!selectedProf.fixedLivery;
   const isHoverPreview = hoveredShipId !== null && hoveredShipId !== selectedShipId;
   const activePaint = getPaintPreset(customization.paintId);
   const activeNeon = getNeonPreset(customization.neonId);
@@ -197,7 +213,9 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
             <div className="text-[10px] tracking-[0.18em] mb-3" style={{ color: isHoverPreview ? prof.hex : activeNeon.hex }}>
               {isHoverPreview
                 ? `${prof.cls.toUpperCase()} · ${prof.subtitle}`
-                : `${activePaint.name} · ${activeNeon.name} · ${activeRim.name}`}
+                : locked
+                  ? 'FACTORY LIVERY · BAKED TEXTURES'
+                  : `${activePaint.name} · ${activeNeon.name} · ${activeRim.name}`}
             </div>
             <div className="grid grid-cols-2 gap-x-5 gap-y-2">
               {stats.map(([label, val]) => (
@@ -350,6 +368,13 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
               </button>
             </div>
 
+            {locked && (
+              <div className="text-[9px] font-bold tracking-[0.14em] text-[#ffd08a] border border-[#f5c451]/45 bg-[#f5c451]/10 px-2 py-1.5">
+                FACTORY LIVERY · THIS CHASSIS SHIPS WITH BAKED TEXTURES, SO PAINT, NEON AND RIM
+                OPTIONS ARE DISABLED
+              </div>
+            )}
+
             {/* Paint Finish Swatches */}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-[110px]">
@@ -367,8 +392,9 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                       type="button"
                       aria-label={`Paint job ${p.name}`}
                       aria-pressed={selected}
+                      disabled={locked}
                       onClick={() => onChangeCustomization({ paintId: p.id })}
-                      className={`w-7 h-7 cursor-pointer transition-transform border ${
+                      className={`w-7 h-7 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed transition-transform border ${
                         selected
                           ? 'scale-110 border-white shadow-[0_0_12px_rgba(255,255,255,0.65)]'
                           : 'border-white/30 hover:border-white/75'
@@ -400,8 +426,9 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                       type="button"
                       aria-label={`Neon trim ${n.name}`}
                       aria-pressed={selected}
+                      disabled={locked}
                       onClick={() => onChangeCustomization({ neonId: n.id })}
-                      className={`w-7 h-7 cursor-pointer transition-transform border ${
+                      className={`w-7 h-7 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed transition-transform border ${
                         selected
                           ? 'scale-110 border-white'
                           : 'border-white/25 hover:border-white/75'
@@ -431,8 +458,9 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
                       key={r.id}
                       type="button"
                       aria-pressed={selected}
+                      disabled={locked}
                       onClick={() => onChangeCustomization({ rimId: r.id })}
-                      className={`px-2 py-1.5 text-[9px] font-black tracking-[0.1em] border cursor-pointer transition-colors ${
+                      className={`px-2 py-1.5 text-[9px] font-black tracking-[0.1em] border cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed transition-colors ${
                         selected
                           ? 'bg-[#00f0ff]/18 border-[#00f0ff] text-white'
                           : 'bg-black/40 border-white/15 text-[#9eb2da] hover:border-white/45 hover:text-white'

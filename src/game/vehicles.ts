@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { canvasTexture } from './textures';
+import { preloadRacerModel, racerModel } from './racerModels';
 import type {
   NeonPreset,
   NeonTrimId,
@@ -172,6 +173,23 @@ export const SHIP_PROFILES: ShipProfile[] = [
     hnd: 1.05,
     bst: 1.04,
     pilotName: 'SORA // SKYLINE ELITE'
+  },
+  {
+    id: 4,
+    kanji: '混沌',
+    name: 'CHAO SPACE RACER',
+    subtitle: 'FACTORY LIVERY · BAKED TEXTURES',
+    color: 0x59b2ff,
+    secondaryColor: 0xff5a4d,
+    hex: '#59b2ff',
+    cls: 'Biolume Chao Prototype',
+    spd: 1.06,
+    acc: 1.12,
+    hnd: 1.18,
+    bst: 0.96,
+    pilotName: 'CHAO // SPACE DIVISION',
+    model: 'chao-space-racer',
+    fixedLivery: true
   }
 ];
 
@@ -625,6 +643,63 @@ export interface BuiltVehicle {
   typeIndex: number;
 }
 
+/**
+ * Fixed-livery chassis: a cooked GLB replaces the procedural hull and keeps its
+ * baked paint, so the customization object is deliberately ignored. The model
+ * loads async, so until it arrives this returns the halo and light only and the
+ * engine rebuilds the ship from the ready callback.
+ */
+function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale: number): BuiltVehicle {
+  const g = new THREE.Group();
+  const engine = new THREE.Group();
+
+  const loaded = profile.model ? racerModel(profile.model) : null;
+  if (profile.model && !loaded) preloadRacerModel(profile.model);
+  if (loaded) g.add(loaded.clone(true));
+  g.add(engine);
+
+  const groundHalo = new THREE.Mesh(
+    new THREE.RingGeometry(1.1, 2.05, 28),
+    new THREE.MeshBasicMaterial({
+      color: accentHex,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  groundHalo.rotation.x = -Math.PI / 2;
+  groundHalo.position.set(0, -0.78, 0.1);
+  g.add(groundHalo);
+
+  const light = new THREE.PointLight(accentHex, 1.6, 30);
+  light.position.set(0, 0.42, -3.2);
+  g.add(light);
+
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: accentHex,
+    metalness: 0.85,
+    roughness: 0.2,
+    emissive: accentHex,
+    emissiveIntensity: 0.45
+  });
+
+  g.scale.setScalar(scale);
+  return {
+    g,
+    engine,
+    boosterCores: [],
+    shockRings: [],
+    repulsorCones: [],
+    rimSpinners: [],
+    groundHalo,
+    light,
+    accentMat,
+    typeIndex: profile.id
+  };
+}
+
 export function buildLuxuryHoverCar(
   typeIndex: number,
   accentHex: number,
@@ -633,6 +708,8 @@ export function buildLuxuryHoverCar(
 ): BuiltVehicle {
   const g = new THREE.Group();
   const profile = SHIP_PROFILES[typeIndex] || SHIP_PROFILES[0];
+
+  if (profile.fixedLivery) return buildFixedLiveryChassis(profile, accentHex, scale);
 
   const paintPreset = custom ? getPaintPreset(custom.paintId) : null;
   const neonPreset = custom ? getNeonPreset(custom.neonId) : null;

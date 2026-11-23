@@ -34,6 +34,7 @@ import {
   SHIP_PROFILES,
   type BuiltVehicle
 } from './vehicles';
+import { onRacerModelReady, preloadRacerModel } from './racerModels';
 import { WeatherSystem } from './weather';
 import { WeatherHazardManager, type HazardInteractionResult } from './weatherHazards';
 import { buildWorld, disposeGroup, type BuiltWorld } from './worlds';
@@ -619,6 +620,17 @@ export class AhwooEngine {
     // Image-based lighting is rebuilt per circuit in loadLevel().
     this.buildLevelEnvironment(LEVELS[0]);
 
+    // Fixed-livery chassis stream in after the world is up; rebuild the ship
+    // and turntable once the selected model actually lands.
+    onRacerModelReady(() => {
+      const prof = SHIP_PROFILES[this.selectedShipId];
+      if (!prof?.fixedLivery) return;
+      this.rebuildPlayer();
+      this.updateTurntableModel();
+    });
+    const startModel = SHIP_PROFILES[this.selectedShipId]?.model;
+    if (startModel) preloadRacerModel(startModel);
+
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
     this.cam = new THREE.PerspectiveCamera(64, w / h, 0.5, 14000);
@@ -1090,7 +1102,9 @@ export class AhwooEngine {
     this.rivals = [];
     const trk = this.world?.trk;
     const hw = trk ? trk.hw : 120;
-    const ids = [0, 1, 2, 3].filter((id) => id !== playerId);
+    // Rival grids and their offset/speed tables are sized for three slots, so a
+    // player driving the fixed-livery chassis fields the first three rivals.
+    const ids = [0, 1, 2, 3].filter((id) => id !== playerId).slice(0, 3);
     const identities = generateRivalIdentities(ids.length);
     const archetypes: RivalArchetype[] = ['enforcer', 'slipstream', 'tactician'];
     ids.forEach((typeId, i) => {
@@ -1266,7 +1280,7 @@ export class AhwooEngine {
       lastRoundRank: 1
     };
 
-    const ids = [0, 1, 2, 3].filter((id) => id !== this.selectedShipId);
+    const ids = [0, 1, 2, 3].filter((id) => id !== this.selectedShipId).slice(0, 3);
     const identities = generateRivalIdentities(ids.length);
     ids.forEach((typeId, i) => {
       const prof = SHIP_PROFILES[typeId] || SHIP_PROFILES[0];
@@ -1354,6 +1368,8 @@ export class AhwooEngine {
     if (!SHIP_PROFILES[id]) return;
     this.audio.playUiClick();
     this.selectedShipId = id;
+    const model = SHIP_PROFILES[id].model;
+    if (model) preloadRacerModel(model);
     this.rebuildPlayer();
     this.setupRivals(id);
     if (this.raceMode === 'grand_prix') {

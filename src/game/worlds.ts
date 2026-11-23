@@ -6,6 +6,9 @@ import {
   makeFacadeAtlas,
   makeKerbTexture,
   makeMetalPlateMaps,
+  makeBrakeZoneTexture,
+  makeChevronDecalTexture,
+  makeLandingMarkerTexture,
   makeRoadMarkingsTexture,
   makeWallTexture,
   nebulaTexture,
@@ -64,6 +67,64 @@ export function disposeGroup(g: THREE.Group, scene: THREE.Scene): void {
 
 function clampTrackU(trk: TrackData, u: number): number {
   return trk.def.isSprint ? Math.max(0, Math.min(1, u)) : ((u % 1) + 1) % 1;
+}
+
+/**
+ * Flat guidance decal laid on the road, aligned to the local track frame.
+ * Plane local X runs across the road, local Y along it, local Z is the normal.
+ */
+function roadDecal(
+  trk: TrackData,
+  u: number,
+  offset: number,
+  width: number,
+  metres: number,
+  mat: THREE.Material,
+  yOff = 0.12
+): THREE.Mesh {
+  const f = trk.fr(clampTrackU(trk, u));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, metres), mat);
+  mesh.position.copy(f.pos).addScaledVector(f.s, offset).addScaledVector(f.up, yOff);
+  const up = f.up.clone().normalize();
+  const right = f.s.clone().normalize();
+  const fwd = new THREE.Vector3().crossVectors(up, right).normalize();
+  if (fwd.dot(f.t) < 0) {
+    fwd.negate();
+    right.negate();
+  }
+  const z = new THREE.Vector3().crossVectors(right, fwd).normalize();
+  mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, fwd, z));
+  return mesh;
+}
+
+/**
+ * Tight corners read off spline curvature: one entry per local heading-change
+ * maximum, so a long hairpin does not stamp ten overlapping decals.
+ */
+function findCorners(trk: TrackData, max = 8): { u: number; mag: number }[] {
+  const found: { u: number; mag: number }[] = [];
+  const step = 0.006;
+  const look = 0.03;
+  for (let u = 0; u < 1; u += step) {
+    if (trk.elev.isGap(u) || trk.inSpecial(u)) continue;
+    const a = trk.fr(u).t;
+    const b = trk.fr(clampTrackU(trk, u + look)).t;
+    let d = Math.atan2(b.x, b.z) - Math.atan2(a.x, a.z);
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const mag = Math.abs(d);
+    if (mag < 0.75) continue;
+    const prev = found[found.length - 1];
+    if (prev && u - prev.u < 0.05) {
+      if (mag > prev.mag) {
+        prev.u = u;
+        prev.mag = mag;
+      }
+      continue;
+    }
+    found.push({ u, mag });
+  }
+  return found.sort((p, q) => q.mag - p.mag).slice(0, max).sort((p, q) => p.u - q.u);
 }
 
 function ribbonGeometry(
@@ -2735,6 +2796,46 @@ export function buildWorld(
     group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 0.6), 1.8, 0.24, z.at, z.to, 20, true), noBarrierWarnMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 0.6, 1.8, 0.24, z.at, z.to, 20, true), noBarrierWarnMat));
     tracksideSign(trk, clampTrackU(trk, z.at - 0.012), 'NO BARRIERS', '#ff425b', 28, group);
+  }
+
+  // Corner guidance, driven by spline curvature so it lands on real corners:
+  // a warm brake wash on the outside of the approach, chevrons on the inside
+  // apex, and a landing box after each jump.
+  const accentCss = '#' + new THREE.Color(def.theme.accent).getHexString();
+  const guideMat = (tex: THREE.Texture, opacity: number) =>
+    new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3
+    });
+  const brakeMat = guideMat(makeBrakeZoneTexture('#ffb838'), 0.9);
+  const apexMat = guideMat(makeChevronDecalTexture(accentCss), 0.95);
+
+  for (const c of findCorners(trk)) {
+    const f = trk.fr(c.u);
+    const before = trk.fr(clampTrackU(trk, c.u - 0.025)).t;
+    const after = trk.fr(clampTrackU(trk, c.u + 0.025)).t;
+    const inside = Math.sign(after.clone().sub(before).dot(f.s)) || 1;
+    group.add(
+      roadDecal(trk, c.u - 34 / Math.max(1, trk.len), -inside * hw * 0.12, hw * 1.15, 26, brakeMat)
+    );
+    group.add(roadDecal(trk, c.u, inside * hw * 0.44, hw * 0.62, 18, apexMat));
+    tracksideSign(trk, clampTrackU(trk, c.u - 70 / Math.max(1, trk.len)), 'BRAKE', '#ffb838', 22, group);
+  }
+
+  const landMat = guideMat(makeLandingMarkerTexture(accentCss), 0.9);
+  for (const j of trk.elev.jumps) {
+    if (trk.elev.isGap(j.end)) continue;
+    group.add(
+      roadDecal(trk, clampTrackU(trk, j.end + 10 / Math.max(1, trk.len)), 0, hw * 1.45, 22, landMat, 0.1)
+    );
   }
 
   const world: BuiltWorld = { group, trk, def, update: () => {} };
