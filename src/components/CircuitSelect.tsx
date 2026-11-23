@@ -117,15 +117,13 @@ export const CircuitSelect: React.FC<CircuitSelectProps> = ({
                 onMouseEnter={() => onPreviewLevel(idx)}
                 onFocus={() => onPreviewLevel(idx)}
                 onClick={() => {
+                  // Hover already scouts the circuit, so a click is the driver
+                  // confirming it: one click launches instead of select-then-go.
                   if (isGp) {
-                    onPreviewLevel(idx);
+                    onSelectLevel(idx);
                     return;
                   }
-                  if (isSelected && isPreviewing) {
-                    onCommitLevel(idx);
-                  } else {
-                    onSelectLevel(idx);
-                  }
+                  onCommitLevel(idx);
                 }}
                 className={`text-left p-3 cursor-pointer transition-all duration-150 border ${
                   isGp
