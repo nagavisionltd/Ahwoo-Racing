@@ -7,12 +7,12 @@ import {
   makeKerbTexture,
   makeMetalPlateMaps,
   makeRoadMarkingsTexture,
-  makeRoadSurfaceTexture,
   makeWallTexture,
   nebulaTexture,
   padTexture,
   planetTexture
 } from './textures';
+import type { RoadGrade } from './textures';
 import { buildTrack } from './tracks';
 import type { DestructibleProp, DestructiblePropKind, LevelDef, ShortcutRail, SpiralBlockGate, TrackData } from './types';
 
@@ -356,7 +356,12 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
   // keeps the window pitch constant in metres instead of stretching a single
   // 128 px canvas across a 1,000 m tower.
   const facade = makeFacadeAtlas();
-  const towerMats = [0, 1, 2].map((cell) => {
+  // Six height bands, each with its own skin: squat podium blocks reuse cells
+  // 0/1, the mid-rise canyon 2/3, and the supertall crowns the brightest 4/5,
+  // so the skyline reads as three registers instead of one repeated facade.
+  const FACADE_BANDS = 6;
+  const bandForHeight = (h: number) => Math.min(FACADE_BANDS - 1, Math.max(0, Math.floor((h - 140) / 120)));
+  const towerMats = Array.from({ length: FACADE_BANDS }, (_, cell) => {
     const mat = new THREE.MeshStandardMaterial({
       map: facade.map,
       emissiveMap: facade.emissive,
@@ -366,7 +371,8 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
       roughness: 0.58,
       envMapIntensity: 0.85
     });
-    const origin = new THREE.Vector2((cell % 4) / 4, 0.5);
+    // Atlas is 4 cells across and 2 down; flipY puts canvas row 0 at v 0.5.
+    const origin = new THREE.Vector2((cell % 4) / 4, cell < 4 ? 0.5 : 0);
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.uCellOrigin = { value: origin };
       shader.uniforms.uCellSize = { value: new THREE.Vector2(0.25, 0.5) };
@@ -398,18 +404,20 @@ function buildNeonWorld(def: LevelDef, trk: TrackData, group: THREE.Group, world
     const r = 360 + Math.random() * 3000;
     const p = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.9);
     if (blocked(p, trk.hw + 145)) continue;
+    const h = 140 + Math.random() * 700;
     towers.push({
       p,
-      h: 140 + Math.random() * 700,
+      h,
       w: 42 + Math.random() * 100,
       d: 42 + Math.random() * 100,
-      mat: (Math.random() * 3) | 0,
+      mat: bandForHeight(h),
       pagoda: Math.random() < 0.28
     });
   }
   const box = new THREE.BoxGeometry(1, 1, 1);
-  for (let mIdx = 0; mIdx < 3; mIdx++) {
+  for (let mIdx = 0; mIdx < FACADE_BANDS; mIdx++) {
     const list = towers.filter((t) => t.mat === mIdx);
+    if (!list.length) continue;
     // Instanced attributes live on the geometry, so each family needs its own
     // copy of the box rather than sharing one buffer.
     const geo = box.clone();
@@ -2571,6 +2579,26 @@ function solidRanges(trk: TrackData): [number, number][] {
   return out;
 }
 
+/**
+ * One authored asphalt set, graded per circuit. Tint multiplies the albedo,
+ * roughness/metalness multiply the packed ARM channels, env is reflection
+ * strength, and uvMetres is the world size of a single texture repeat.
+ */
+const ROAD_GRADE: Record<string, RoadGrade> = {
+  // 01 · night city: cool dry asphalt that still catches the neon
+  neon: { tint: 0xcbd4e4, roughness: 0.62, metalness: 0.35, env: 1.15, uvMetres: 22 },
+  // 02 · sunset coast: sun-bleached, matte and warm
+  beach: { tint: 0xffe2c9, roughness: 0.82, metalness: 0.1, env: 0.7, uvMetres: 30 },
+  // 03 · orbital ring: cold composite deck, glossier and tighter grained
+  space: { tint: 0xa8b6d8, roughness: 0.5, metalness: 0.45, env: 1.05, uvMetres: 18 },
+  // 04 · underwater tunnel: wet, cyan cast, strong reflections
+  space_beach: { tint: 0xb6dfe0, roughness: 0.4, metalness: 0.3, env: 1.2, uvMetres: 20 },
+  // 05 · vortex descent: rain-slick asphalt with a violet cast
+  vortex: { tint: 0xcfb6e2, roughness: 0.34, metalness: 0.32, env: 1.3, uvMetres: 16 },
+  // 06 · rift gauntlet: hot, scorched and dry
+  gauntlet: { tint: 0xe7c3ad, roughness: 0.74, metalness: 0.18, env: 0.85, uvMetres: 26 }
+};
+
 export function buildWorld(
   def: LevelDef,
   scene: THREE.Scene,
@@ -2607,18 +2635,11 @@ export function buildWorld(
   // Surface and light are separate layers: a tiling, metre-scaled asphalt map
   // for the deck and a transparent additive decal for the glow markings, so
   // only the markings bloom instead of the whole road self-illuminating.
-  // Level 01 runs the authored CC0 asphalt set; the other circuits keep the
-  // painted canvas surface until their own PBR sets land.
-  const roadMat =
-    def.id === 'neon'
-      ? makeAsphaltRoadMaterial()
-      : new THREE.MeshStandardMaterial({
-          map: makeRoadSurfaceTexture(def.road),
-          roughness: 0.58,
-          metalness: 0.42,
-          envMapIntensity: 0.9,
-          side: THREE.DoubleSide
-        });
+  // Every circuit runs the authored CC0 asphalt set now, graded per level so
+  // the city reads cool and dry, the coast sun-bleached, the orbital deck
+  // glossy, and so on.
+  const grade = ROAD_GRADE[def.id] ?? ROAD_GRADE.neon;
+  const roadMat = makeAsphaltRoadMaterial(grade);
 
   const markingTex = makeRoadMarkingsTexture(def.road);
   const markingMat = new THREE.MeshBasicMaterial({
@@ -2688,7 +2709,7 @@ export function buildWorld(
   const barrierRanges = subtractRanges(ranges, noBarrierZones);
 
   for (const [a, b] of ranges) {
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.04, a, b, 40, true, 24), roadMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.04, a, b, 40, true, grade.uvMetres), roadMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.075, a, b, 96, true), markingMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 1.8), 3.4, 0.11, a, b, 12, true), kerbMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 1.8, 3.4, 0.11, a, b, 12, true), kerbMat));

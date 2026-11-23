@@ -378,19 +378,34 @@ function authoredMap(url: string, srgb: boolean): THREE.Texture {
   return t;
 }
 
-/** Real asphalt for the city circuit, replacing the painted canvas surface. */
-export function makeAsphaltRoadMaterial(): THREE.MeshStandardMaterial {
+/**
+ * Per-circuit grading of the one shared asphalt set. Tint multiplies the
+ * albedo, roughness/metalness multiply the packed ARM channels, and uvMetres
+ * is the world size of a single texture repeat, so the grain stays the same
+ * physical size on every deck instead of stretching with the ribbon.
+ */
+export interface RoadGrade {
+  tint: number;
+  roughness: number;
+  metalness: number;
+  env: number;
+  uvMetres: number;
+}
+
+/** Authored asphalt, graded per circuit so no level ships the painted canvas. */
+export function makeAsphaltRoadMaterial(grade: RoadGrade): THREE.MeshStandardMaterial {
   const albedo = authoredMap('/assets/textures/asphalt/asphalt-albedo.webp', true);
   const normal = authoredMap('/assets/textures/asphalt/asphalt-normal.webp', false);
   const arm = authoredMap('/assets/textures/asphalt/asphalt-arm.webp', false);
   return new THREE.MeshStandardMaterial({
+    color: grade.tint,
     map: albedo,
     normalMap: normal,
     roughnessMap: arm,
     metalnessMap: arm,
-    roughness: 1,
-    metalness: 1,
-    envMapIntensity: 0.95,
+    roughness: grade.roughness,
+    metalness: grade.metalness,
+    envMapIntensity: grade.env,
     side: THREE.DoubleSide
   });
 }
