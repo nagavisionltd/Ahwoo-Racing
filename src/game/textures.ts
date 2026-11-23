@@ -49,82 +49,108 @@ export function glowPlane(color: string, size: number, opacity = 0.55): THREE.Me
   );
 }
 
-export function makeRoadTexture(theme: RoadPalette): THREE.CanvasTexture {
-  return canvasTexture(1024, 2048, (g, w, h) => {
+/**
+ * Tiling road substrate. Square, so one tile is the same number of metres in
+ * both directions and texel density no longer depends on road width or on how
+ * long the ribbon is. Carries no lane markings — those live in
+ * makeRoadMarkingsTexture so only they emit light.
+ */
+export function makeRoadSurfaceTexture(theme: RoadPalette): THREE.CanvasTexture {
+  const lifted = new THREE.Color(theme.base).lerp(new THREE.Color('#7d8ba1'), 0.38);
+  const baseHex = '#' + lifted.getHexString();
+
+  const t = canvasTexture(512, 512, (g, w, h) => {
     const rnd = (a: number, b: number) => a + Math.random() * (b - a);
-    g.fillStyle = theme.base;
+    g.fillStyle = baseHex;
     g.fillRect(0, 0, w, h);
 
     // broad tonal drift
-    for (let i = 0; i < 240; i++) {
-      g.fillStyle = `rgba(${(rnd(110, 200) | 0)},${(rnd(140, 220) | 0)},255,${rnd(0.006, 0.022)})`;
-      g.fillRect(rnd(0, w), rnd(0, h), rnd(80, 380), rnd(60, 320));
+    for (let i = 0; i < 130; i++) {
+      g.fillStyle = `rgba(${(rnd(150, 215) | 0)},${(rnd(170, 230) | 0)},240,${rnd(0.01, 0.04)})`;
+      g.fillRect(rnd(0, w), rnd(0, h), rnd(30, 160), rnd(30, 170));
     }
-    // camber shading
-    const camber = g.createLinearGradient(0, 0, w, 0);
-    camber.addColorStop(0, 'rgba(0,0,0,0.42)');
-    camber.addColorStop(0.18, 'rgba(0,0,0,0)');
-    camber.addColorStop(0.5, 'rgba(255,235,190,0.06)');
-    camber.addColorStop(0.82, 'rgba(0,0,0,0)');
-    camber.addColorStop(1, 'rgba(0,0,0,0.42)');
-    g.fillStyle = camber;
-    g.fillRect(0, 0, w, h);
 
-    // carbon aggregate grain
-    for (let i = 0; i < 12000; i++) {
+    // aggregate grain
+    for (let i = 0; i < 7000; i++) {
       g.fillStyle =
         Math.random() > 0.5
-          ? `rgba(220,240,255,${rnd(0.02, 0.08)})`
-          : `rgba(0,0,0,${rnd(0.08, 0.22)})`;
+          ? `rgba(232,242,255,${rnd(0.03, 0.1)})`
+          : `rgba(0,0,0,${rnd(0.06, 0.18)})`;
       g.fillRect(rnd(0, w), rnd(0, h), rnd(1, 3), rnd(1, 3));
     }
 
-    // rubbered-in hover slipstreams
-    const centres = [0.1, 0.3, 0.5, 0.7, 0.9];
-    for (const c of centres) {
-      for (const o of [-0.045, 0.045]) {
-        const x = (c + o) * w;
-        for (let y = 0; y < h; y += 8) {
-          g.fillStyle = `rgba(0,0,0,${rnd(0.05, 0.18)})`;
-          g.fillRect(x - rnd(9, 15), y, rnd(18, 30), 9);
-        }
-      }
+    // brushed direction along the driving line
+    for (let i = 0; i < 90; i++) {
+      g.fillStyle = `rgba(255,255,255,${rnd(0.012, 0.035)})`;
+      g.fillRect(rnd(0, w), rnd(0, h), rnd(1, 2.5), rnd(40, 220));
     }
 
-    // wet gloss streaks
-    g.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 24; i++) {
-      const x = rnd(20, w - 20);
-      const y = rnd(0, h);
-      const len = rnd(140, 520);
-      const grd = g.createLinearGradient(0, y, 0, y + len);
-      grd.addColorStop(0, 'rgba(255,255,255,0)');
-      grd.addColorStop(0.5, (i % 2 ? theme.edge : theme.edge2) + '26');
-      grd.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = grd;
-      g.fillRect(x, y, rnd(3, 11), len);
-    }
-    g.globalCompositeOperation = 'source-over';
+    // camber shading, wrapping cleanly at the tile edges
+    const camber = g.createLinearGradient(0, 0, w, 0);
+    camber.addColorStop(0, 'rgba(0,0,0,0.26)');
+    camber.addColorStop(0.22, 'rgba(0,0,0,0)');
+    camber.addColorStop(0.5, 'rgba(255,236,196,0.05)');
+    camber.addColorStop(0.78, 'rgba(0,0,0,0)');
+    camber.addColorStop(1, 'rgba(0,0,0,0.26)');
+    g.fillStyle = camber;
+    g.fillRect(0, 0, w, h);
 
-    // expansion joints
-    for (let y = 0; y < h; y += 256) {
-      g.fillStyle = 'rgba(0,0,0,0.5)';
-      g.fillRect(0, y, w, 5);
-      g.fillStyle = 'rgba(255,220,160,0.22)';
-      g.fillRect(0, y + 5, w, 2);
-      for (let x = 40; x < w; x += 96) {
-        g.fillStyle = 'rgba(220,235,255,0.35)';
-        g.fillRect(x, y + 12, 4, 4);
-      }
+    // one expansion joint per tile, so it repeats down the road
+    g.fillStyle = 'rgba(0,0,0,0.42)';
+    g.fillRect(0, 0, w, 3);
+    g.fillStyle = 'rgba(255,236,196,0.1)';
+    g.fillRect(0, 3, w, 2);
+  });
+
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+/**
+ * The lit layer: edge lines, lane dividers and guidance chevrons on a
+ * transparent field, laid over the road as its own additive ribbon. u runs
+ * across the full road width (so markings stay aligned to the edges) while v
+ * repeats along the road in metres.
+ */
+export function makeRoadMarkingsTexture(theme: RoadPalette): THREE.CanvasTexture {
+  const t = canvasTexture(1024, 2048, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+
+    // glowing outer edges
+    g.shadowBlur = 26;
+    g.fillStyle = theme.edge;
+    g.shadowColor = theme.edge;
+    g.fillRect(0, 0, 16, h);
+    g.fillRect(w - 16, 0, 16, h);
+    g.shadowBlur = 14;
+    g.fillStyle = theme.edge2;
+    g.shadowColor = theme.edge2;
+    g.fillRect(18, 0, 7, h);
+    g.fillRect(w - 25, 0, 7, h);
+
+    // lane dividers
+    g.shadowBlur = 12;
+    g.lineWidth = 5;
+    for (const x of [w * 0.2, w * 0.4, w * 0.6, w * 0.8]) {
+      const mid = x === w * 0.4 || x === w * 0.6;
+      g.strokeStyle = mid ? theme.centre : theme.lane;
+      g.shadowColor = g.strokeStyle;
+      g.setLineDash(mid ? [110, 60] : [64, 64]);
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x, h);
+      g.stroke();
     }
+    g.setLineDash([]);
 
     // guidance chevrons in the two inner lanes
-    g.shadowBlur = 12;
+    g.shadowBlur = 16;
     for (const c of [0.3, 0.7]) {
       const cx = c * w;
       g.shadowColor = theme.lane;
-      g.fillStyle = theme.lane + '88';
-      for (const yy of [1320, 1420]) {
+      g.fillStyle = theme.lane + 'cc';
+      for (const yy of [h * 0.42, h * 0.6]) {
         g.beginPath();
         g.moveTo(cx - 62, yy + 62);
         g.lineTo(cx, yy);
@@ -137,33 +163,14 @@ export function makeRoadTexture(theme: RoadPalette): THREE.CanvasTexture {
       }
     }
 
-    // glowing outer edges
-    g.shadowBlur = 24;
-    g.fillStyle = theme.edge;
-    g.shadowColor = theme.edge;
-    g.fillRect(0, 0, 18, h);
-    g.fillRect(w - 18, 0, 18, h);
-    g.shadowBlur = 12;
-    g.fillStyle = theme.edge2;
-    g.shadowColor = theme.edge2;
-    g.fillRect(18, 0, 8, h);
-    g.fillRect(w - 26, 0, 8, h);
-
-    // lane dividers
-    g.shadowBlur = 10;
-    g.lineWidth = 5;
-    for (const x of [w * 0.2, w * 0.4, w * 0.6, w * 0.8]) {
-      const mid = x === w * 0.4 || x === w * 0.6;
-      g.strokeStyle = mid ? theme.centre : theme.lane;
-      g.shadowColor = g.strokeStyle;
-      g.setLineDash(mid ? [92, 52] : [52, 52]);
-      g.beginPath();
-      g.moveTo(x, 0);
-      g.lineTo(x, h);
-      g.stroke();
-    }
-    g.setLineDash([]);
+    // reflected studs along the expansion joint
+    g.shadowBlur = 0;
+    g.fillStyle = 'rgba(220,235,255,0.4)';
+    for (let x = 40; x < w; x += 96) g.fillRect(x, 10, 4, 14);
   });
+
+  t.wrapT = THREE.RepeatWrapping;
+  return t;
 }
 
 export function makeKerbTexture(a: string, b: string): THREE.CanvasTexture {

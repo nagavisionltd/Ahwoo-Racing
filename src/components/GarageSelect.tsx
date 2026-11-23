@@ -119,7 +119,6 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
   onNext
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [showConceptSheet, setShowConceptSheet] = useState(false);
   const [hoveredShipId, setHoveredShipId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -164,13 +163,6 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowConceptSheet((v) => !v)}
-          className="nav-chip px-3.5 py-1.5 text-[10px] font-bold tracking-[0.18em] text-[#f5c451] cursor-pointer"
-        >
-          {showConceptSheet ? 'VIEW 3D TURNTABLE' : 'CONCEPT BLUEPRINT'}
-        </button>
       </div>
 
       {/* Main Split */}
@@ -183,11 +175,7 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
               style={{ color: isHoverPreview ? prof.hex : '#f5c451' }}
             >
               <RotateCw className="w-3.5 h-3.5" />
-              {showConceptSheet
-                ? 'TURNTABLE DESIGN SHEET'
-                : isHoverPreview
-                  ? '360° HOVER PREVIEW // CLICK TO LOCK'
-                  : '360° LIVE CHASSIS TURNTABLE'}
+              {isHoverPreview ? '360° HOVER PREVIEW // CLICK TO LOCK' : '360° LIVE CHASSIS TURNTABLE'}
             </span>
             <span className="text-[#9eb2da]">{prof.pilotName}</span>
           </div>
@@ -195,24 +183,8 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
           <div className="relative flex-1 flex items-center justify-center my-2 min-h-[220px]">
             <canvas
               ref={canvasRef}
-              className={`w-full h-[250px] md:h-[290px] cursor-grab active:cursor-grabbing ${
-                showConceptSheet ? 'hidden' : 'block'
-              }`}
+              className="w-full h-[250px] md:h-[290px] cursor-grab active:cursor-grabbing"
             />
-            {showConceptSheet && (
-              <div className="grid grid-cols-2 gap-2 w-full">
-                <img
-                  src="/assets/aistudio/Futuristic_vehicle_turntable_vie__84c125c5_2K_3c72f496.jpg"
-                  alt="Ahwoo Luxury Hover Coupe Turntable Front & Rear"
-                  className="w-full h-44 md:h-52 object-cover border border-[#f5c451]/40"
-                />
-                <img
-                  src="/assets/aistudio/Futuristic_vehicle_turntable_vie__a65913aa_2K_c43f67a8.jpg"
-                  alt="Ahwoo Luxury Hover Coupe Turntable Angles"
-                  className="w-full h-44 md:h-52 object-cover border border-[#f5c451]/40"
-                />
-              </div>
-            )}
           </div>
 
           <div className="border-t border-white/10 pt-3 relative">
@@ -474,24 +446,8 @@ export const GarageSelect: React.FC<GarageSelectProps> = ({
             </div>
           </div>
 
-          {/* Cyber-Gold Rider Portrait Card */}
-          <div className="lux-panel-cyan p-2.5 flex items-center gap-3.5">
-            <img
-              src="/assets/aistudio/Cyber_Gold_Rider_Concept_a1494b22.png"
-              alt="Ahwoo Cyber-Gold Rider"
-              className="w-12 h-12 object-cover border border-[#f5c451]/60 shrink-0"
-            />
-            <div className="text-left">
-              <div className="text-[9px] font-bold tracking-[0.2em] text-[#00f0ff]">
-                PILOT SUIT &amp; TELEMETRY LINK
-              </div>
-              <div className="text-xs font-black tracking-[0.08em] text-white mt-0.5">
-                {prof.pilotName}
-              </div>
-              <div className="text-[9px] text-[#9fb2d9] mt-0.5">
-                Hover cards for live 360° preview · Drag platter to orbit · Enter to confirm
-              </div>
-            </div>
+          <div className="text-[9px] text-[#9fb2d9]">
+            Hover cards for live 360° preview · Drag platter to orbit · Enter to confirm
           </div>
         </div>
       </div>

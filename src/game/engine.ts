@@ -8,7 +8,7 @@ import { RaceAnnouncer } from './announcer';
 import { SoundEngine } from './audio';
 import { getCircuitRecord, saveRaceRecord, type SaveRaceOutcomeResult } from './records';
 import { generateRivalIdentities, getPlayerIdentity } from './rivals';
-import { radialTexture, setTextureMaxAnisotropy } from './textures';
+import { canvasTexture, radialTexture, setTextureMaxAnisotropy } from './textures';
 import { LEVELS } from './tracks';
 import type {
   GameStep,
@@ -329,7 +329,7 @@ export class AhwooEngine {
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
   private cyberPass: ShaderPass | null = null;
-  private envTexture: THREE.Texture;
+  private envTexture!: THREE.Texture;
 
   private ambient: THREE.AmbientLight;
   private hemi: THREE.HemisphereLight;
@@ -616,11 +616,8 @@ export class AhwooEngine {
     this.scene.background = new THREE.Color(0x090a18);
     this.scene.fog = new THREE.Fog(0x090a18, 330, 3900);
 
-    // Mandatory studio environment reflection map via RoomEnvironment
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environment = this.envTexture;
-    pmrem.dispose();
+    // Image-based lighting is rebuilt per circuit in loadLevel().
+    this.buildLevelEnvironment(LEVELS[0]);
 
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
@@ -837,6 +834,65 @@ export class AhwooEngine {
     this.resizeTurntable();
   };
 
+  /**
+   * Per-level reflection environment. A small equirect sky in the circuit's own
+   * palette (sky, horizon glow, sun, rim bounce) is baked to PMREM, so chrome,
+   * paint and the road surface reflect the level they are in rather than one
+   * shared studio room.
+   */
+  private buildLevelEnvironment(def: (typeof LEVELS)[number]): void {
+    const hexStr = (hex: number) => '#' + new THREE.Color(hex).getHexString();
+    const skyTex = canvasTexture(512, 256, (g, w, h) => {
+      const grd = g.createLinearGradient(0, 0, 0, h);
+      grd.addColorStop(0, hexStr(def.look.sky));
+      grd.addColorStop(0.44, hexStr(def.look.hemiSky));
+      grd.addColorStop(0.52, hexStr(def.look.fog));
+      grd.addColorStop(1, '#04060b');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, w, h);
+
+      g.globalCompositeOperation = 'lighter';
+
+      const band = g.createLinearGradient(0, h * 0.34, 0, h * 0.66);
+      band.addColorStop(0, 'rgba(0,0,0,0)');
+      band.addColorStop(0.5, hexStr(def.theme.accent));
+      band.addColorStop(1, 'rgba(0,0,0,0)');
+      g.globalAlpha = 0.45;
+      g.fillStyle = band;
+      g.fillRect(0, h * 0.3, w, h * 0.4);
+
+      const sun = g.createRadialGradient(w * 0.3, h * 0.36, 4, w * 0.3, h * 0.36, w * 0.17);
+      sun.addColorStop(0, hexStr(def.look.sun));
+      sun.addColorStop(1, 'rgba(0,0,0,0)');
+      g.globalAlpha = 0.9;
+      g.fillStyle = sun;
+      g.fillRect(0, 0, w, h);
+
+      const rim = g.createRadialGradient(w * 0.78, h * 0.44, 4, w * 0.78, h * 0.44, w * 0.14);
+      rim.addColorStop(0, hexStr(def.look.rim));
+      rim.addColorStop(1, 'rgba(0,0,0,0)');
+      g.globalAlpha = 0.55;
+      g.fillStyle = rim;
+      g.fillRect(0, 0, w, h);
+
+      g.globalAlpha = 0.3;
+      g.fillStyle = hexStr(def.theme.secondary);
+      g.fillRect(0, h * 0.56, w, 6);
+
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+    });
+    skyTex.mapping = THREE.EquirectangularReflectionMapping;
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const rt = pmrem.fromEquirectangular(skyTex);
+    this.envTexture?.dispose();
+    this.envTexture = rt.texture;
+    this.scene.environment = this.envTexture;
+    skyTex.dispose();
+    pmrem.dispose();
+  }
+
   private loadLevel(index: number): void {
     if (this.weatherHazards) {
       this.weatherHazards.dispose(this.scene);
@@ -849,6 +905,7 @@ export class AhwooEngine {
     if (this.world) disposeGroup(this.world.group, this.scene);
     this.activeLevel = index;
     const def = LEVELS[index];
+    this.buildLevelEnvironment(def);
     this.world = buildWorld(def, this.scene, {
       ambient: this.ambient,
       hemi: this.hemi,

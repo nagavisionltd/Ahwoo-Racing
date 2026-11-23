@@ -112,21 +112,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
               </span>
             </button>
 
-            <div className="flex items-center gap-3 lux-panel px-4 py-2.5">
-              <img
-                src="/assets/aistudio/Cyber_Gold_Rider_Concept_a1494b22.png"
-                alt="Cyber-Gold Rider"
-                className="w-11 h-11 object-cover border border-[#f5c451]/60"
-              />
-              <div className="text-left">
-                <div className="text-[10px] font-bold tracking-[0.18em] text-[#f5c451]">
-                  FEATURED PILOT
-                </div>
-                <div className="text-[11px] font-bold tracking-[0.1em] text-white">
-                  KAIRO // SOVEREIGN GT
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -139,7 +124,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({ onStart, onGrandPrix, 
             </div>
             <div className="relative aspect-video w-full overflow-hidden bg-[#050712]">
               <video
-                src="/assets/aistudio/Character_piloting_hover_vehicle__826b15f4_1080p_83e522a0.mp4"
+                src="/assets/aistudio/hyper-coastal-reel.mp4"
+                poster="/assets/aistudio/hyper-coastal-reel-poster.webp"
+                preload="metadata"
                 autoPlay
                 loop
                 muted

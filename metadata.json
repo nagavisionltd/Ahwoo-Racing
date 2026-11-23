@@ -1,6 +1,0 @@
-{
-  "name": "Ahwoo Racing",
-  "description": "Futuristic 3D hover luxury car racing across Neon Sprawl, Vesper Shore, and Event Horizon.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

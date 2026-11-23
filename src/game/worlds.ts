@@ -3,7 +3,8 @@ import {
   canvasTexture,
   glowPlane,
   makeKerbTexture,
-  makeRoadTexture,
+  makeRoadMarkingsTexture,
+  makeRoadSurfaceTexture,
   makeWallTexture,
   nebulaTexture,
   padTexture,
@@ -70,7 +71,8 @@ function ribbonGeometry(
   from: number,
   to: number,
   vScale: number,
-  taper?: boolean
+  taper?: boolean,
+  uvMetres?: number
 ): THREE.BufferGeometry {
   const pos: number[] = [];
   const uv: number[] = [];
@@ -86,8 +88,11 @@ function ribbonGeometry(
     const a = base.clone().addScaledVector(f.s, (-width * ws) / 2);
     const b = base.clone().addScaledVector(f.s, (width * ws) / 2);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    const v = (uRaw * trk.len) / (vScale || 40);
-    uv.push(0, v, 1, v);
+    // With uvMetres the ribbon is UV-mapped in world metres (one texture tile
+    // per uvMetres in both directions); otherwise the old 0..1-across mapping
+    // stands, which is what the decal-style overlays rely on.
+    const v = uvMetres ? (uRaw * trk.len) / uvMetres : (uRaw * trk.len) / (vScale || 40);
+    uv.push(0, v, uvMetres ? (width * ws) / uvMetres : 1, v);
     if (k < steps) {
       const j = k * 2;
       idx.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
@@ -2576,16 +2581,29 @@ export function buildWorld(
   const ranges = solidRanges(trk);
   const hw = trk.hw;
 
-  const roadTex = makeRoadTexture(def.road);
-  roadTex.wrapT = THREE.RepeatWrapping;
+  // Surface and light are separate layers: a tiling, metre-scaled asphalt map
+  // for the deck and a transparent additive decal for the glow markings, so
+  // only the markings bloom instead of the whole road self-illuminating.
+  const roadSurfaceTex = makeRoadSurfaceTexture(def.road);
   const roadMat = new THREE.MeshStandardMaterial({
-    map: roadTex,
-    emissiveMap: roadTex,
-    emissive: 0xffffff,
-    emissiveIntensity: 0.72,
-    roughness: 0.24,
-    metalness: 0.55,
+    map: roadSurfaceTex,
+    roughness: 0.58,
+    metalness: 0.42,
+    envMapIntensity: 0.9,
     side: THREE.DoubleSide
+  });
+
+  const markingTex = makeRoadMarkingsTexture(def.road);
+  const markingMat = new THREE.MeshBasicMaterial({
+    map: markingTex,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2
   });
 
   const kerbTex = makeKerbTexture(def.road.edge2, def.road.edge);
@@ -2628,7 +2646,8 @@ export function buildWorld(
   const barrierRanges = subtractRanges(ranges, noBarrierZones);
 
   for (const [a, b] of ranges) {
-    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.04, a, b, 40, true), roadMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.04, a, b, 40, true, 24), roadMat));
+    group.add(new THREE.Mesh(ribbonGeometry(trk, 0, hw * 2, 0.075, a, b, 96, true), markingMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, -(hw - 1.8), 3.4, 0.11, a, b, 12, true), kerbMat));
     group.add(new THREE.Mesh(ribbonGeometry(trk, hw - 1.8, 3.4, 0.11, a, b, 12, true), kerbMat));
 

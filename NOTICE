@@ -1,0 +1,36 @@
+# Third-party notices
+
+## Code dependencies
+
+| Package | Licence |
+|---|---|
+| three, @types/three | MIT |
+| react, react-dom | MIT |
+| vite, @vitejs/plugin-react | MIT |
+| @tailwindcss/vite, tailwindcss | MIT |
+| lucide-react | ISC |
+| typescript | Apache-2.0 |
+
+## Fonts
+
+Audiowide, Orbitron and Noto Sans SC are served at runtime from Google Fonts under the
+SIL Open Font License 1.1. Self-host them before deploying if you want to remove the
+external request.
+
+## Music and media
+
+Race radio is **embedded**, never bundled: the Spotify IFrame API plays playlist
+`1XbVBMVIC71ruH7IHuzEJ0` and YouTube embeds play CRO — "No Hand Outs" and any
+user-supplied track or playlist URL. Those recordings remain the property of their
+respective rights holders; embedding through the official players is not a licence to
+redistribute them. Confirm clearance with Empire Alpha Worldwide before any commercial
+promotion of the game.
+
+All engine, UI and ambient audio in `src/game/audio.ts` is synthesised at runtime and
+contains no third-party samples.
+
+## Generated media
+
+`public/assets/aistudio/` contains a video reel produced with Google AI Studio /
+generative video tooling for this project. Their commercial terms are governed
+by the terms of the account that generated them, not by this repository's licence.
