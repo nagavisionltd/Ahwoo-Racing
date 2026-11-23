@@ -727,15 +727,16 @@ function buildVerdantFairing(
   const W = size.x;
   const H = size.y;
 
+  const shellMat = new THREE.MeshPhysicalMaterial({
+    color: 0x2f6b42,
+    metalness: 0.55,
+    roughness: 0.26,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.12
+  });
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(1, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.52),
-    new THREE.MeshPhysicalMaterial({
-      color: 0x2f6b42,
-      metalness: 0.55,
-      roughness: 0.26,
-      clearcoat: 0.85,
-      clearcoatRoughness: 0.12
-    })
+    shellMat
   );
   const cz = box.getCenter(new THREE.Vector3()).z;
   // Low and long rather than a dome: a tall hemisphere over the leaf mass read
