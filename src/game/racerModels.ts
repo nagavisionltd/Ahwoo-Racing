@@ -15,7 +15,12 @@ const TARGET_LENGTH = 4.6;
 
 /** Yaw needed so the model's nose points along +Z like the procedural hulls. */
 const MODEL_YAW: Record<string, number> = {
-  'chao-space-racer': 0
+  'chao-space-racer': 0,
+  // These three were generated nose-along-X, so they need a quarter turn to
+  // point down +Z like the Chao and the procedural hulls.
+  'green-space-racer': -Math.PI / 2,
+  'angel-chao-racer': -Math.PI / 2,
+  'midnight-aero-majesty': -Math.PI / 2
 };
 
 const cache = new Map<string, THREE.Group>();

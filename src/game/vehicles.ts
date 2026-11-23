@@ -190,6 +190,57 @@ export const SHIP_PROFILES: ShipProfile[] = [
     pilotName: 'CHAO // SPACE DIVISION',
     model: 'chao-space-racer',
     fixedLivery: true
+  },
+  {
+    id: 5,
+    kanji: '青葉',
+    name: 'VERDANT ORBIT RUNNER',
+    subtitle: 'FACTORY LIVERY · BAKED TEXTURES',
+    color: 0x7ddc5a,
+    secondaryColor: 0x1e6b3a,
+    hex: '#7ddc5a',
+    cls: 'Foliage-Class Space Racer',
+    spd: 1.09,
+    acc: 1.02,
+    hnd: 1.07,
+    bst: 1.05,
+    pilotName: 'FENN // VERDANT WORKS',
+    model: 'green-space-racer',
+    fixedLivery: true
+  },
+  {
+    id: 6,
+    kanji: '聖歌',
+    name: 'SERAPH CHAO RACER',
+    subtitle: 'FACTORY LIVERY · BAKED TEXTURES',
+    color: 0xf2f6ff,
+    secondaryColor: 0xf5c451,
+    hex: '#f2f6ff',
+    cls: 'Biolume Chao Seraph',
+    spd: 1.01,
+    acc: 1.16,
+    hnd: 1.12,
+    bst: 1.0,
+    pilotName: 'AVIEL // CHOIR FLIGHT',
+    model: 'angel-chao-racer',
+    fixedLivery: true
+  },
+  {
+    id: 7,
+    kanji: '夜皇',
+    name: 'MIDNIGHT AERO MAJESTY',
+    subtitle: 'FACTORY LIVERY · BAKED TEXTURES',
+    color: 0x8f74ff,
+    secondaryColor: 0x2a2f52,
+    hex: '#8f74ff',
+    cls: 'Midnight Aero Flagship',
+    spd: 1.12,
+    acc: 0.99,
+    hnd: 1.01,
+    bst: 1.14,
+    pilotName: 'NYX // NOCTURNE COURT',
+    model: 'midnight-aero-majesty',
+    fixedLivery: true
   }
 ];
 
@@ -651,17 +702,61 @@ export interface BuiltVehicle {
  */
 function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale: number): BuiltVehicle {
   const g = new THREE.Group();
-  const engine = new THREE.Group();
+  // Baked-livery ships carry their own glow identity, so workshop neon does not
+  // tint the halo, plumes or repulsors.
+  const accent = profile.color;
 
   const loaded = profile.model ? racerModel(profile.model) : null;
   if (profile.model && !loaded) preloadRacerModel(profile.model);
-  if (loaded) g.add(loaded.clone(true));
+  const hull = loaded ? loaded.clone(true) : null;
+  if (hull) g.add(hull);
+
+  // The cooked hull has no animated exhaust, so plumes and hover pads are
+  // procedural and drive the same engine/booster hooks as the built ships.
+  const box = hull
+    ? new THREE.Box3().setFromObject(hull)
+    : new THREE.Box3(new THREE.Vector3(-1.2, -0.55, -2.3), new THREE.Vector3(1.2, 1.05, 2.3));
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const rearZ = box.min.z + Math.max(0.12, size.z * 0.04);
+  const nozzleY = box.min.y + size.y * 0.42;
+  const nozzleX = Math.max(0.3, (size.x / 2) * 0.34);
+  const nozzleCoords: [number, number, number][] = [
+    [-nozzleX, nozzleY, rearZ],
+    [nozzleX, nozzleY, rearZ]
+  ];
+  const rig = buildBoosterRig(
+    nozzleCoords,
+    accent,
+    profile.secondaryColor,
+    Math.max(0.26, (size.x / 2) * 0.19),
+    Math.max(2.4, size.z * 0.66)
+  );
+  const engine = rig.engine;
   g.add(engine);
+
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: accent,
+    metalness: 0.85,
+    roughness: 0.2,
+    emissive: accent,
+    emissiveIntensity: 0.45
+  });
+
+  const repulsorCones: THREE.Mesh[] = [];
+  const padScale = Math.max(0.6, size.z * 0.16);
+  for (const px of [-nozzleX * 1.2, nozzleX * 1.2]) {
+    const { pad, plasma } = buildRepulsorPad(accent, accentMat, 'turbine');
+    pad.scale.setScalar(padScale);
+    pad.position.set(px, box.min.y + 0.02, centre.z * 0.25);
+    g.add(pad);
+    repulsorCones.push(plasma);
+  }
 
   const groundHalo = new THREE.Mesh(
     new THREE.RingGeometry(1.1, 2.05, 28),
     new THREE.MeshBasicMaterial({
-      color: accentHex,
+      color: accent,
       transparent: true,
       opacity: 0.18,
       side: THREE.DoubleSide,
@@ -673,25 +768,17 @@ function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale:
   groundHalo.position.set(0, -0.78, 0.1);
   g.add(groundHalo);
 
-  const light = new THREE.PointLight(accentHex, 1.6, 30);
+  const light = new THREE.PointLight(accent, 1.6, 30);
   light.position.set(0, 0.42, -3.2);
   g.add(light);
-
-  const accentMat = new THREE.MeshStandardMaterial({
-    color: accentHex,
-    metalness: 0.85,
-    roughness: 0.2,
-    emissive: accentHex,
-    emissiveIntensity: 0.45
-  });
 
   g.scale.setScalar(scale);
   return {
     g,
     engine,
-    boosterCores: [],
-    shockRings: [],
-    repulsorCones: [],
+    boosterCores: rig.boosterCores,
+    shockRings: rig.shockRings,
+    repulsorCones,
     rimSpinners: [],
     groundHalo,
     light,

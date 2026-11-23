@@ -623,13 +623,13 @@ export class AhwooEngine {
     // Fixed-livery chassis stream in after the world is up; rebuild the ship
     // and turntable once the selected model actually lands.
     onRacerModelReady(() => {
-      const prof = SHIP_PROFILES[this.selectedShipId];
-      if (!prof?.fixedLivery) return;
-      this.rebuildPlayer();
+      // A late arrival can be a hovered preview or the locked-in ship.
       this.updateTurntableModel();
+      if (SHIP_PROFILES[this.selectedShipId]?.fixedLivery) this.rebuildPlayer();
     });
-    const startModel = SHIP_PROFILES[this.selectedShipId]?.model;
-    if (startModel) preloadRacerModel(startModel);
+    for (const p of SHIP_PROFILES) {
+      if (p.model) preloadRacerModel(p.model);
+    }
 
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;

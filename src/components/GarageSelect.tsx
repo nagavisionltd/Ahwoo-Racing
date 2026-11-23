@@ -101,6 +101,38 @@ const ShipSilhouetteThumb: React.FC<{ id: number; hex: string; active: boolean; 
             <circle cx="76" cy="26" r="2.2" fill="#050712" />
           </g>
         )}
+        {id === 5 && (
+          <g>
+            {/* Verdant Orbit Runner: leaf hull, twin foliage fins */}
+            <path d="M22 38 Q52 18 94 22 L120 33 L100 41 L30 41 Z" fill="#233a1d" stroke={hex} strokeWidth="1.6" />
+            <path d="M40 32 Q64 20 92 26 L84 34 L44 36 Z" fill={hex} fillOpacity="0.45" />
+            <path d="M34 30 Q22 20 14 26 Q22 33 34 34 Z" fill={hex} fillOpacity="0.7" />
+            <path d="M100 26 Q116 18 124 24 Q114 32 104 32 Z" fill={hex} fillOpacity="0.7" />
+            <circle cx="52" cy="40" r="4.6" fill="#0b101d" stroke={hex} strokeWidth="1.3" />
+            <circle cx="96" cy="40" r="4.6" fill="#0b101d" stroke={hex} strokeWidth="1.3" />
+          </g>
+        )}
+        {id === 6 && (
+          <g>
+            {/* Seraph Chao Racer: white pod, gold halo, swept wings */}
+            <ellipse cx="70" cy="15" rx="12" ry="3.4" fill="none" stroke="#f5c451" strokeWidth="2" />
+            <path d="M44 36 Q54 20 70 19 Q86 20 96 36 L86 44 L54 44 Z" fill="#eef2fb" stroke={hex} strokeWidth="1.6" />
+            <path d="M52 34 Q70 24 88 34 L82 39 L58 39 Z" fill={hex} fillOpacity="0.4" />
+            <path d="M46 34 L24 26 L30 40 Z" fill="#ffffff" fillOpacity="0.72" stroke={hex} strokeWidth="1.1" />
+            <path d="M94 34 L116 26 L110 40 Z" fill="#ffffff" fillOpacity="0.72" stroke={hex} strokeWidth="1.1" />
+            <circle cx="70" cy="38" r="4.2" fill="#0b101d" stroke={hex} strokeWidth="1.3" />
+          </g>
+        )}
+        {id === 7 && (
+          <g>
+            {/* Midnight Aero Majesty: long chrome arrow, violet blades */}
+            <path d="M14 36 L58 20 L112 24 L126 33 L110 40 L24 40 Z" fill="#1a2038" stroke={hex} strokeWidth="1.6" />
+            <path d="M62 25 L98 27 L110 33 L66 34 Z" fill={hex} fillOpacity="0.45" />
+            <path d="M120 26 L136 30 L124 34 Z" fill={hex} fillOpacity="0.85" />
+            <circle cx="42" cy="39" r="4.6" fill="#0b101d" stroke={hex} strokeWidth="1.3" />
+            <circle cx="98" cy="39" r="4.6" fill="#0b101d" stroke={hex} strokeWidth="1.3" />
+          </g>
+        )}
       </svg>
 
       {previewed && (
