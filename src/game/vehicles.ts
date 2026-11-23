@@ -704,7 +704,15 @@ export interface BuiltVehicle {
  * loads async, so until it arrives this returns the halo and light only and the
  * engine rebuilds the ship from the ready callback.
  */
-function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale: number): BuiltVehicle {
+/** Team plate colours for the three grid slots. */
+const RIVAL_PLATES = [0xff3b6b, 0x2ee6ff, 0xffc23b];
+
+function buildFixedLiveryChassis(
+  profile: ShipProfile,
+  accentHex: number,
+  scale: number,
+  rivalSlot?: number
+): BuiltVehicle {
   const g = new THREE.Group();
   // Baked-livery ships carry their own glow identity, so workshop neon does not
   // tint the halo, plumes or repulsors.
@@ -738,6 +746,44 @@ function buildFixedLiveryChassis(profile: ShipProfile, accentHex: number, scale:
   );
   const engine = rig.engine;
   g.add(engine);
+
+  // Rivals should read as opponents at a glance rather than clones of the
+  // player's factory hull: tint the baked shell toward a team plate and add a
+  // pair of glowing tail bands that show from the chase camera.
+  if (rivalSlot !== undefined && hull) {
+    const plateHex = RIVAL_PLATES[rivalSlot % RIVAL_PLATES.length];
+    const plateColor = new THREE.Color(plateHex);
+    hull.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const wasArray = Array.isArray(mesh.material);
+      const mats: THREE.Material[] = wasArray
+        ? (mesh.material as THREE.Material[])
+        : [(mesh.material as THREE.Material)];
+      const tinted = mats.map((m) => {
+        const std = (m as THREE.MeshStandardMaterial).clone();
+        std.color.lerp(plateColor, 0.3);
+        return std;
+      });
+      mesh.material = wasArray ? tinted : tinted[0];
+    });
+
+    const bandMat = new THREE.MeshStandardMaterial({
+      color: plateHex,
+      emissive: plateHex,
+      emissiveIntensity: 0.6,
+      metalness: 0.5,
+      roughness: 0.35
+    });
+    for (const side of [-1, 1]) {
+      const band = new THREE.Mesh(
+        new THREE.BoxGeometry(size.x * 0.26, size.y * 0.07, 0.05),
+        bandMat
+      );
+      band.position.set(side * size.x * 0.24, nozzleY + size.y * 0.2, rearZ - 0.03);
+      g.add(band);
+    }
+  }
 
   const accentMat = new THREE.MeshStandardMaterial({
     color: accent,
@@ -795,12 +841,15 @@ export function buildLuxuryHoverCar(
   typeIndex: number,
   accentHex: number,
   scale = 1.0,
-  custom?: VehicleCustomization
+  custom?: VehicleCustomization,
+  rivalSlot?: number
 ): BuiltVehicle {
   const g = new THREE.Group();
   const profile = SHIP_PROFILES[typeIndex] || SHIP_PROFILES[0];
 
-  if (profile.fixedLivery) return buildFixedLiveryChassis(profile, accentHex, scale);
+  if (profile.fixedLivery) {
+    return buildFixedLiveryChassis(profile, accentHex, scale, rivalSlot);
+  }
 
   const paintPreset = custom ? getPaintPreset(custom.paintId) : null;
   const neonPreset = custom ? getNeonPreset(custom.neonId) : null;

@@ -1112,7 +1112,7 @@ export class AhwooEngine {
     const archetypes: RivalArchetype[] = ['enforcer', 'slipstream', 'tactician'];
     ids.forEach((typeId, i) => {
       const prof = SHIP_PROFILES[typeId];
-      const built = buildLuxuryHoverCar(typeId, prof.color, 0.96);
+      const built = buildLuxuryHoverCar(typeId, prof.color, 0.96, undefined, i);
       this.scene.add(built.g);
       this.rivals.push({
         ...built,
@@ -1125,7 +1125,7 @@ export class AhwooEngine {
         // whole field hundreds of metres up the road, off camera.
         u: ((i + 1) * 9) / (trk?.len || 1000),
         lap: 1,
-        off: [-0.16, 0, 0.16][i] * hw,
+        off: [-0.06, 0, 0.06][i] * hw,
         baseSpeed: [0.83, 0.88, 0.94][i],
         prevProgress: ((i + 1) * 9) / (trk?.len || 1000),
         vx: 0,
