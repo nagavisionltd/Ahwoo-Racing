@@ -47,6 +47,13 @@ const INITIAL_HUD: HudSnapshot = {
     label: '',
     kind: 'debris'
   },
+  hazardProximity: {
+    active: false,
+    intensity: 0,
+    kind: 'debris',
+    side: 0,
+    distanceM: 999
+  },
   drift: {
     active: false,
     dir: 0,

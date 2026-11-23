@@ -191,6 +191,14 @@ export interface HazardAlert {
   kind: WeatherHazardKind;
 }
 
+export interface HazardProximityAlert {
+  active: boolean;
+  intensity: number; // 0..1
+  kind: WeatherHazardKind;
+  side: number; // -1 left .. 0 center .. +1 right
+  distanceM: number;
+}
+
 export interface LevelDef {
   id: 'neon' | 'beach' | 'space' | 'space_beach';
   num: string;
@@ -318,6 +326,7 @@ export interface HudSnapshot {
   reconSecondsLeft: number;
   weather: WeatherSnapshot;
   hazardAlert: HazardAlert;
+  hazardProximity: HazardProximityAlert;
   drift: DriftSnapshot;
   announcer: AnnouncerSnapshot;
   replayShot: string;

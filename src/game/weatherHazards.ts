@@ -34,12 +34,17 @@ export interface HazardInteractionResult {
   lateralJolt: number;
   alertLabel: string;
   alertKind: WeatherHazardKind;
+  proximityIntensity: number;
+  proximityKind: WeatherHazardKind;
+  proximitySide: number;
+  proximityDistM: number;
 }
 
 // Pre-allocated scratch helpers (zero GC inside update loop)
 const _m4 = new THREE.Matrix4();
 const _negS = new THREE.Vector3();
 const _hitPos = new THREE.Vector3();
+const _toHazard = new THREE.Vector3();
 
 const TRIGGER_HAZARD_TAG: Record<string, string> = {
   neon_downpour: 'HAZARD: FLOATING DEBRIS',
@@ -449,7 +454,9 @@ export class WeatherHazardManager {
     now: number,
     phase: WeatherPhaseDef,
     shipPos: THREE.Vector3,
+    forwardDir: THREE.Vector3,
     playerX: number,
+    lookaheadDist: number,
     isRacing: boolean,
     outResult: HazardInteractionResult
   ): void {
@@ -460,8 +467,13 @@ export class WeatherHazardManager {
     outResult.speedDragRate = 0;
     outResult.lateralJolt = 0;
     outResult.alertLabel = '';
+    outResult.proximityIntensity = 0;
+    outResult.proximityKind = 'debris';
+    outResult.proximitySide = 0;
+    outResult.proximityDistM = 999;
 
     const t = now * 0.001;
+    const lookaheadSq = lookaheadDist * lookaheadDist;
 
     for (let i = 0; i < this.slots.length; i++) {
       const h = this.slots[i];
@@ -512,6 +524,26 @@ export class WeatherHazardManager {
       if (!isRacing || h.activation < 0.55) continue;
 
       const distSq = shipPos.distanceToSquared(h.worldPos);
+
+      // High-speed forward proximity anticipation check (debris, fog drain zones, ion surges)
+      if (h.cool <= 0 && distSq < lookaheadSq) {
+        _toHazard.subVectors(h.worldPos, shipPos);
+        const dotFwd = _toHazard.dot(forwardDir);
+        const dist = Math.sqrt(distSq);
+        const edgeDist = Math.max(0, dist - h.radius);
+        // Trigger when inside hazard or approaching ahead within lookahead cone
+        if (edgeDist <= 2 || (dotFwd > -4 && dist <= lookaheadDist)) {
+          const prox = edgeDist <= 0 ? 1.0 : Math.pow(1 - Math.min(1, edgeDist / lookaheadDist), 1.35) * h.activation;
+          if (prox > outResult.proximityIntensity) {
+            outResult.proximityIntensity = prox;
+            outResult.proximityKind = h.kind;
+            outResult.proximityDistM = Math.round(edgeDist);
+            const latDelta = h.curOff - playerX;
+            outResult.proximitySide = Math.max(-1, Math.min(1, latDelta / Math.max(18, f.width * 0.28)));
+          }
+        }
+      }
+
       if (h.kind === 'debris') {
         const hitR = h.radius + 2.2;
         if (h.cool <= 0 && distSq < hitR * hitR) {

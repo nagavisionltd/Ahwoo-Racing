@@ -244,6 +244,20 @@ body,
   animation: weatherIonOrbitCcw 4.2s linear infinite;
 }
 
+@keyframes hazardEdgePulse {
+  0%,
+  100% {
+    opacity: 0.48;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.hazard-edge-pulse {
+  animation: hazardEdgePulse 0.65s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .countdown-pop,
   .cta-btn,
@@ -255,7 +269,8 @@ body,
   .weather-solar-rays,
   .weather-solar-ring,
   .weather-ion-cw,
-  .weather-ion-ccw {
+  .weather-ion-ccw,
+  .hazard-edge-pulse {
     animation: none;
     transition: none;
   }

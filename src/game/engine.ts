@@ -7,9 +7,16 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RaceAnnouncer } from './announcer';
 import { SoundEngine } from './audio';
 import { generateRivalIdentities, getPlayerIdentity } from './rivals';
-import { setTextureMaxAnisotropy } from './textures';
+import { radialTexture, setTextureMaxAnisotropy } from './textures';
 import { LEVELS } from './tracks';
-import type { GameStep, HazardAlert, HudSnapshot, StandingEntry, VehicleCustomization } from './types';
+import type {
+  GameStep,
+  HazardAlert,
+  HazardProximityAlert,
+  HudSnapshot,
+  StandingEntry,
+  VehicleCustomization
+} from './types';
 import {
   buildLuxuryHoverCar,
   frameChassis,
@@ -171,6 +178,13 @@ const REPLAY_SHOTS: ReplayShotDef[] = [
   { kind: 'wide_apex', label: 'WIDE · TRACKSIDE', duration: 4.2, fov: 58, stiffness: 36 }
 ];
 
+const DRIFT_TIER_RGB: readonly [number, number, number][] = [
+  [0.16, 0.62, 1.0], // Tier 0: Electric Blue initiation
+  [0.0, 0.94, 1.0],  // Tier 1: Hyper Cyan ready
+  [1.0, 0.18, 0.58], // Tier 2: Neon Magenta sustained
+  [1.0, 0.84, 0.28]  // Tier 3: Radiant Gold max multiplier
+];
+
 const _hazardResult: HazardInteractionResult = {
   debrisHit: false,
   debrisHitPos: new THREE.Vector3(),
@@ -181,7 +195,11 @@ const _hazardResult: HazardInteractionResult = {
   speedDragRate: 0,
   lateralJolt: 0,
   alertLabel: '',
-  alertKind: 'debris'
+  alertKind: 'debris',
+  proximityIntensity: 0,
+  proximityKind: 'debris',
+  proximitySide: 0,
+  proximityDistM: 999
 };
 
 export class AhwooEngine {
@@ -238,6 +256,19 @@ export class AhwooEngine {
   private sparkGeo = new THREE.BufferGeometry();
   private sparkMat: THREE.PointsMaterial;
 
+  // Tier-colored trailing neon drift particle system
+  private readonly DRIFT_MAX = 320;
+  private driftPos = new Float32Array(320 * 3);
+  private driftVel = new Float32Array(320 * 3);
+  private driftCol = new Float32Array(320 * 3);
+  private driftBaseCol = new Float32Array(320 * 3);
+  private driftLife = new Float32Array(320);
+  private driftMaxLife = new Float32Array(320);
+  private driftGeo = new THREE.BufferGeometry();
+  private driftSpriteTex: THREE.CanvasTexture;
+  private driftMat: THREE.PointsMaterial;
+  private driftIdx = 0;
+
   // Simulation state
   private S = {
     u: 0,
@@ -285,6 +316,7 @@ export class AhwooEngine {
   private camUpD = 2.6;
   private camBoost = 0;
   private camPullback = 0;
+  private camRoll = 0;
   private camSpringPos = new THREE.Vector3();
   private camSpringVel = new THREE.Vector3();
   private camSpringInit = false;
@@ -303,6 +335,13 @@ export class AhwooEngine {
   private splitText = '';
   private splitTimer: number | null = null;
   private hazardAlert: HazardAlert = { active: false, label: '', kind: 'debris' };
+  private hazardProximity: HazardProximityAlert = {
+    active: false,
+    intensity: 0,
+    kind: 'debris',
+    side: 0,
+    distanceM: 999
+  };
   private debrisAlertTimer = 0;
 
   private heldKeys: Record<string, boolean> = {};
@@ -432,6 +471,26 @@ export class AhwooEngine {
       depthWrite: false
     });
     this.scene.add(new THREE.Points(this.sparkGeo, this.sparkMat));
+
+    for (let i = 0; i < this.DRIFT_MAX; i++) {
+      this.driftPos[i * 3 + 1] = -9999;
+      this.driftMaxLife[i] = 1;
+    }
+    this.driftGeo.setAttribute('position', new THREE.BufferAttribute(this.driftPos, 3));
+    this.driftGeo.setAttribute('color', new THREE.BufferAttribute(this.driftCol, 3));
+    this.driftSpriteTex = radialTexture('rgba(255, 255, 255, 1)');
+    this.driftMat = new THREE.PointsMaterial({
+      size: 5.2,
+      map: this.driftSpriteTex,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.94,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false
+    });
+    this.scene.add(new THREE.Points(this.driftGeo, this.driftMat));
 
     // Initial world & vehicles
     this.loadLevel(0);
@@ -852,6 +911,7 @@ export class AhwooEngine {
     this.firstFrame = true;
     this.camSpringInit = false;
     this.camSpringVel.set(0, 0, 0);
+    this.camRoll = 0;
     this.replayWasActive = false;
     this.announcer.resetRaceCooldowns();
     this.setStep('race');
@@ -882,6 +942,7 @@ export class AhwooEngine {
     this.firstFrame = true;
     this.camSpringInit = false;
     this.camSpringVel.set(0, 0, 0);
+    this.camRoll = 0;
     this.replayWasActive = false;
     this.lastTickMs = performance.now();
     this.setStep('race');
@@ -943,10 +1004,16 @@ export class AhwooEngine {
     this.weatherHazards?.resetCooldowns();
     this.announcer.resetRaceCooldowns();
     this.hazardAlert = { active: false, label: '', kind: 'debris' };
+    this.hazardProximity = { active: false, intensity: 0, kind: 'debris', side: 0, distanceM: 999 };
     this.debrisAlertTimer = 0;
+    this.driftLife.fill(0);
+    for (let i = 0; i < this.DRIFT_MAX; i++) {
+      this.driftPos[i * 3 + 1] = -9999;
+    }
     this.firstFrame = true;
     this.camSpringInit = false;
     this.camSpringVel.set(0, 0, 0);
+    this.camRoll = 0;
     this.replayWasActive = false;
   }
 
@@ -967,6 +1034,33 @@ export class AhwooEngine {
     this.trailPos[i * 3 + 2] = pos.z;
     this.trailLife[i] = 1;
     this.trailIdx = (this.trailIdx + 1) % this.TRAIL_MAX;
+  }
+
+  private spawnDriftNeonParticle(
+    origin: THREE.Vector3,
+    vx: number,
+    vy: number,
+    vz: number,
+    tier: 0 | 1 | 2 | 3,
+    maxLife: number
+  ): void {
+    const i = this.driftIdx;
+    const rgb = DRIFT_TIER_RGB[tier] || DRIFT_TIER_RGB[0];
+    this.driftPos[i * 3] = origin.x;
+    this.driftPos[i * 3 + 1] = origin.y;
+    this.driftPos[i * 3 + 2] = origin.z;
+    this.driftVel[i * 3] = vx;
+    this.driftVel[i * 3 + 1] = vy;
+    this.driftVel[i * 3 + 2] = vz;
+    this.driftBaseCol[i * 3] = rgb[0];
+    this.driftBaseCol[i * 3 + 1] = rgb[1];
+    this.driftBaseCol[i * 3 + 2] = rgb[2];
+    this.driftCol[i * 3] = rgb[0];
+    this.driftCol[i * 3 + 1] = rgb[1];
+    this.driftCol[i * 3 + 2] = rgb[2];
+    this.driftLife[i] = maxLife;
+    this.driftMaxLife[i] = maxLife;
+    this.driftIdx = (this.driftIdx + 1) % this.DRIFT_MAX;
   }
 
   private spawnSparks(origin: THREE.Vector3, count = 26): void {
@@ -1233,6 +1327,27 @@ export class AhwooEngine {
           this.aberrationPulse = Math.max(this.aberrationPulse, 0.018 + S.driftTier * 0.005);
           this.screenShake = Math.max(this.screenShake, 0.24);
           this.showSplit(`DRIFT BOOST · TIER ${tierNumeral}`);
+          // Surge release burst of tier-colored neon particles
+          const surgeFrame = trk.fr(Math.max(0, Math.min(1, trk.def.isSprint ? S.u : ((S.u % 1) + 1) % 1)));
+          for (let bi = 0; bi < 32; bi++) {
+            const sideSign = bi % 2 === 0 ? -1 : 1;
+            _vecA
+              .copy(ship.position)
+              .addScaledVector(surgeFrame.s, sideSign * 1.5)
+              .addScaledVector(surgeFrame.t, -2.5)
+              .addScaledVector(surgeFrame.up, -0.3);
+            const burstSpeed = 28 + Math.random() * 24;
+            const spreadS = (Math.random() - 0.5) * 24 + sideSign * 8;
+            const spreadUp = Math.random() * 14 + 2;
+            this.spawnDriftNeonParticle(
+              _vecA,
+              surgeFrame.t.x * -burstSpeed + surgeFrame.s.x * spreadS + surgeFrame.up.x * spreadUp,
+              surgeFrame.t.y * -burstSpeed + surgeFrame.s.y * spreadS + surgeFrame.up.y * spreadUp,
+              surgeFrame.t.z * -burstSpeed + surgeFrame.s.z * spreadS + surgeFrame.up.z * spreadUp,
+              S.driftTier,
+              0.78
+            );
+          }
         } else if (S.driftLiveScore > 0) {
           S.totalDriftScore += S.driftLiveScore;
         }
@@ -1703,9 +1818,11 @@ export class AhwooEngine {
       }
       this.cam.fov += (shot.fov - this.cam.fov) * (1 - Math.exp(-dt * 6));
       this.cam.updateProjectionMatrix();
+      this.camRoll *= Math.max(0, 1 - dt * 6);
       this.screenShake = 0;
     } else if (!racing) {
       this.replayWasActive = false;
+      this.camRoll *= Math.max(0, 1 - dt * 6);
       const sweep = this.step === 'preview' ? 0.032 : this.step === 'level' ? 0.018 : 0.007;
       const aerialH = this.step === 'preview' ? 540 : this.step === 'level' ? 460 : 400;
       const aerialFov = this.step === 'preview' ? 78 : this.step === 'level' ? 74 : 68;
@@ -1782,6 +1899,7 @@ export class AhwooEngine {
         this.camSpringPos.copy(_camP);
         this.camSpringVel.set(0, 0, 0);
         this.camSpringInit = true;
+        this.camRoll = 0;
         _camLook.copy(ship.position).addScaledVector(_camT, 18);
         this.firstFrame = false;
       } else {
@@ -1876,8 +1994,38 @@ export class AhwooEngine {
       _vecB.lerp(_vecC, inLoop || inRoll ? 0.34 : 0.46);
 
       _camLook.lerp(_vecB, 1 - Math.exp(-dt * (22 + speed01 * 10 + stuntRate)));
-      this.cam.up.copy(_camUp);
-      _camBasis.lookAt(this.cam.position, _camLook, _camUp);
+
+      // High-speed horizon tilt / aerodynamic cornering roll from track curvature, steering, lateral G, & drift
+      const probeCurvDu = Math.min(0.012, 22 / (trk.len * liveArcStretch));
+      const fCurvB = trk.fr(clampU(u - probeCurvDu));
+      const fCurvA = trk.fr(clampU(u + probeCurvDu));
+      const curvSpanM = Math.max(10, 2 * probeCurvDu * trk.len * liveArcStretch);
+      const latTurnRad = fCurvA.t.dot(F.s) - fCurvB.t.dot(F.s);
+      const curvSigned = latTurnRad / curvSpanM;
+      const highSpeedGate = Math.min(1.45, Math.max(0, (spd - 0.14) / 0.86));
+      const stuntAtten = inLoop || inRoll ? 0.35 : 1.0;
+      const curvRoll = curvSigned * 22.0 * highSpeedGate * stuntAtten;
+      const aeroRoll =
+        (S.steer * 0.062 + (S.vx / 115) * 0.048 + S.driftAngle * 0.115) *
+        (0.24 + 0.76 * highSpeedGate) *
+        (1 + this.camBoost * 0.24);
+      const targetRoll = THREE.MathUtils.clamp(curvRoll + aeroRoll, -0.165, 0.165);
+      this.camRoll += (targetRoll - this.camRoll) * (1 - Math.exp(-dt * (5.6 + speed01 * 2.4)));
+
+      // Orthonormalize rolled up vector around exact camera view ray without perturbing cam position bounds
+      _vecC.subVectors(_camLook, this.cam.position).normalize();
+      _vecA
+        .copy(_camUp)
+        .addScaledVector(_vecC, -_camUp.dot(_vecC))
+        .normalize();
+      _vecB.crossVectors(_vecC, _vecA).normalize();
+      _vecA
+        .multiplyScalar(Math.cos(this.camRoll))
+        .addScaledVector(_vecB, Math.sin(this.camRoll))
+        .normalize();
+
+      this.cam.up.copy(_vecA);
+      _camBasis.lookAt(this.cam.position, _camLook, _vecA);
       _camDesiredQ.setFromRotationMatrix(_camBasis);
       this.cam.quaternion.slerp(_camDesiredQ, 1 - Math.exp(-dt * (22 + speed01 * 12 + stuntRate)));
 
@@ -1931,9 +2079,30 @@ export class AhwooEngine {
       this.spawnTrailParticle(_vecA);
       this.spawnTrailParticle(_vecB);
       if (isBoosting && Math.random() < 0.35) this.spawnSparks(ship.position, 6);
-      if (S.driftActive) {
-        _vecA.copy(ship.position).addScaledVector(F.s, -S.driftDir * 1.4).addScaledVector(F.t, -2.1).addScaledVector(F.up, -0.5);
-        this.spawnSparks(_vecA, 2 + S.driftTier * 2);
+      if (S.driftActive && S.run) {
+        // Tier-colored trailing neon particles: Blue (0) -> Cyan (1) -> Magenta (2) -> Gold (3)
+        const emitCount = 2 + S.driftTier * 2;
+        const lifeSpan = 0.52 + S.driftTier * 0.14;
+        for (let k = 0; k < emitCount; k++) {
+          const isOuter = k % 3 !== 2;
+          const latPod = isOuter ? -S.driftDir * (1.55 + Math.random() * 0.45) : S.driftDir * (1.05 + Math.random() * 0.35);
+          _vecA
+            .copy(ship.position)
+            .addScaledVector(F.s, latPod)
+            .addScaledVector(F.t, -2.2 - Math.random() * 0.7)
+            .addScaledVector(F.up, -0.45 + Math.random() * 0.28);
+          const backV = 15 + S.driftTier * 5 + Math.random() * 10;
+          const outV = -S.driftDir * (12 + S.driftTier * 7 + Math.random() * 10);
+          const upV = 3 + Math.random() * (6 + S.driftTier * 2);
+          this.spawnDriftNeonParticle(
+            _vecA,
+            F.t.x * -backV + F.s.x * outV + F.up.x * upV,
+            F.t.y * -backV + F.s.y * outV + F.up.y * upV,
+            F.t.z * -backV + F.s.z * outV + F.up.z * upV,
+            S.driftTier,
+            lifeSpan
+          );
+        }
       }
     }
 
@@ -2029,6 +2198,27 @@ export class AhwooEngine {
     }
     this.trailGeo.attributes.position.needsUpdate = true;
 
+    for (let i = 0; i < this.DRIFT_MAX; i++) {
+      if (this.driftLife[i] > 0) {
+        this.driftLife[i] = Math.max(0, this.driftLife[i] - dt);
+        this.driftPos[i * 3] += this.driftVel[i * 3] * dt;
+        this.driftPos[i * 3 + 1] += this.driftVel[i * 3 + 1] * dt;
+        this.driftPos[i * 3 + 2] += this.driftVel[i * 3 + 2] * dt;
+        this.driftVel[i * 3] *= Math.max(0, 1 - dt * 1.8);
+        this.driftVel[i * 3 + 1] *= Math.max(0, 1 - dt * 1.8);
+        this.driftVel[i * 3 + 2] *= Math.max(0, 1 - dt * 1.8);
+        const fade = this.driftLife[i] / Math.max(0.01, this.driftMaxLife[i]);
+        const brightness = 0.2 + 0.8 * fade;
+        this.driftCol[i * 3] = this.driftBaseCol[i * 3] * brightness;
+        this.driftCol[i * 3 + 1] = this.driftBaseCol[i * 3 + 1] * brightness;
+        this.driftCol[i * 3 + 2] = this.driftBaseCol[i * 3 + 2] * brightness;
+      } else {
+        this.driftPos[i * 3 + 1] = -9999;
+      }
+    }
+    this.driftGeo.attributes.position.needsUpdate = true;
+    this.driftGeo.attributes.color.needsUpdate = true;
+
     if (isBoosting || S.v > 180) {
       this.speedlineMat.opacity = Math.min(0.9, (S.v / MAXV) * 0.4 + (isBoosting ? 0.6 : 0));
       const arr = this.speedlineGeo.attributes.position.array as Float32Array;
@@ -2070,14 +2260,17 @@ export class AhwooEngine {
         this.step === 'race' || this.step === 'countdown' || this.step === 'preview' || this.step === 'level';
       this.audio.updateWeatherAmbience(wSnap.kind, wSnap.intensity, weatherAudioActive);
 
-      // Update weather-triggered interactive hazards (floating debris, energy-draining fog, ion surges)
+      // Update weather-triggered interactive hazards & compute high-speed proximity alert
       if (this.weatherHazards) {
+        const lookaheadDist = Math.max(125, Math.min(265, 105 + S.v * 0.55));
         this.weatherHazards.update(
           dt,
           now,
           this.weather.getCurrentPhase(),
           ship.position,
+          F.t,
           S.x,
+          lookaheadDist,
           S.run,
           _hazardResult
         );
@@ -2085,6 +2278,41 @@ export class AhwooEngine {
         if (this.debrisAlertTimer > 0) this.debrisAlertTimer = Math.max(0, this.debrisAlertTimer - dt);
 
         if (S.run) {
+          // Also factor close upcoming track barrier obstacles into high-speed proximity alert
+          let proxInt = _hazardResult.proximityIntensity;
+          let proxKind = _hazardResult.proximityKind;
+          let proxSide = _hazardResult.proximitySide;
+          let proxDist = _hazardResult.proximityDistM;
+          const obsLookahead = Math.min(130, 75 + S.v * 0.35);
+
+          for (let oi = 0; oi < trk.obstacles.length; oi++) {
+            const ob = trk.obstacles[oi];
+            if (ob.cool > 0) continue;
+            _vecA.subVectors(ob.pos, ship.position);
+            const dotFwd = _vecA.dot(F.t);
+            if (dotFwd <= 0 || dotFwd > obsLookahead) continue;
+            const latDiff = ob.off - S.x;
+            if (Math.abs(latDiff) > ob.r + 18) continue;
+            const edgeD = Math.max(0, dotFwd - ob.r);
+            const obProx = Math.pow(1 - Math.min(1, edgeD / obsLookahead), 1.45);
+            if (obProx > proxInt) {
+              proxInt = obProx;
+              proxKind = 'debris';
+              proxSide = Math.max(-1, Math.min(1, latDiff / 22));
+              proxDist = Math.round(edgeD);
+            }
+          }
+
+          const smoothRate = proxInt > this.hazardProximity.intensity ? 12 : 6;
+          this.hazardProximity.intensity +=
+            (proxInt - this.hazardProximity.intensity) * (1 - Math.exp(-dt * smoothRate));
+          this.hazardProximity.active = this.hazardProximity.intensity > 0.05;
+          if (proxInt > 0.05) {
+            this.hazardProximity.kind = proxKind;
+            this.hazardProximity.side = proxSide;
+            this.hazardProximity.distanceM = proxDist;
+          }
+
           if (_hazardResult.debrisHit) {
             S.vx = _hazardResult.debrisPushDir * 52;
             S.v *= 0.68;
@@ -2126,6 +2354,10 @@ export class AhwooEngine {
           this.audio.updateHazardDrain(false);
           if (this.hazardAlert.active) {
             this.hazardAlert = { active: false, label: '', kind: 'debris' };
+          }
+          if (this.hazardProximity.active) {
+            this.hazardProximity.active = false;
+            this.hazardProximity.intensity = 0;
           }
         }
       }
@@ -2240,6 +2472,7 @@ export class AhwooEngine {
             hazardTag: 'HAZARD: FLOATING DEBRIS'
           },
       hazardAlert: this.hazardAlert,
+      hazardProximity: { ...this.hazardProximity },
       drift: {
         active: S.driftActive,
         dir: S.driftDir,
@@ -2281,6 +2514,15 @@ export class AhwooEngine {
     this.detachTurntable();
     this.announcer.dispose();
     this.audio.dispose();
+    this.trailGeo.dispose();
+    this.trailMat.dispose();
+    this.sparkGeo.dispose();
+    this.sparkMat.dispose();
+    this.speedlineGeo.dispose();
+    this.speedlineMat.dispose();
+    this.driftGeo.dispose();
+    this.driftMat.dispose();
+    this.driftSpriteTex.dispose();
     if (this.weatherHazards) {
       this.weatherHazards.dispose(this.scene);
       this.weatherHazards = null;
