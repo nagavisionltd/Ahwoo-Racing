@@ -1120,11 +1120,14 @@ export class AhwooEngine {
         racerId: identities[i].racerId,
         teamName: identities[i].teamName,
         archetype: archetypes[i % archetypes.length],
-        u: (i + 1) * 0.022,
+        // u is a fraction of the lap and this circuit is ~18.8 km, so the grid
+        // is placed in metres ahead of the player: fractional offsets put the
+        // whole field hundreds of metres up the road, off camera.
+        u: ((i + 1) * 9) / (trk?.len || 1000),
         lap: 1,
-        off: [-0.45, -0.1, 0.42][i] * hw,
+        off: [-0.16, 0, 0.16][i] * hw,
         baseSpeed: [0.83, 0.88, 0.94][i],
-        prevProgress: (i + 1) * 0.022,
+        prevProgress: ((i + 1) * 9) / (trk?.len || 1000),
         vx: 0,
         yawOff: 0,
         yawVel: 0,
